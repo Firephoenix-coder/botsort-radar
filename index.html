@@ -15,74 +15,58 @@
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; font-family: Arial, sans-serif;}
         #map { height: 100vh; width: 100vw; }
-        
-        .plane-icon {
-            font-size: 20px; text-align: center; line-height: 20px;
-            transform-origin: center center; 
-        }
-        
+        .plane-icon { font-size: 20px; text-align: center; line-height: 20px; transform-origin: center center; }
         .leaflet-popup-content { font-size: 14px; }
-        
-        .fr-btn {
-            display: inline-block; margin-top: 10px; padding: 5px 10px;
-            background: #ff9900; color: #000; text-decoration: none;
-            border-radius: 5px; font-weight: bold; width: 100%; text-align: center; box-sizing: border-box;
-        }
-
-        #close-btn {
-            position: absolute; top: 15px; right: 15px; z-index: 9999;
-            background-color: rgba(30, 30, 30, 0.85); color: #ff4d4d;
-            border: 2px solid #ff4d4d; padding: 10px 20px; border-radius: 10px;
-            font-size: 16px; font-weight: bold; cursor: pointer; backdrop-filter: blur(5px);
-        }
-
-        #status-panel {
-            position: absolute; top: 15px; left: 15px; z-index: 9999;
-            background-color: rgba(0, 0, 0, 0.8); color: #00ff00;
-            border: 1px solid #00ff00; padding: 10px; border-radius: 8px;
-            font-size: 14px; font-family: monospace; font-weight: bold;
-        }
+        .fr-btn { display: inline-block; margin-top: 10px; padding: 5px 10px; background: #ff9900; color: #000; text-decoration: none; border-radius: 5px; font-weight: bold; width: 100%; text-align: center; box-sizing: border-box; }
+        #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background-color: rgba(30, 30, 30, 0.85); color: #ff4d4d; border: 2px solid #ff4d4d; padding: 10px 20px; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; backdrop-filter: blur(5px); }
+        #status-panel { position: absolute; top: 15px; left: 15px; z-index: 9999; background-color: rgba(0, 0, 0, 0.8); color: #00ff00; border: 1px solid #00ff00; padding: 10px; border-radius: 8px; font-size: 14px; font-family: monospace; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="status-panel">⚙️ Ініціалізація FlightRadar...</div>
+    <div id="status-panel">⚙️ Ініціалізація...</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData){window.Telegram.WebApp.close();}else{window.close();}">✖ Закрити</button>
 
     <div id="map"></div>
 
     <script>
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
-            window.Telegram.WebApp.expand();
-        }
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) { window.Telegram.WebApp.expand(); }
 
-        const map = L.map('map').setView([49.0, 31.0], 5);
+        const map = L.map('map').setView([49.0, 31.0], 4);
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap © CARTO © FlightRadar24'
+            maxZoom: 19, attribution: '© OpenStreetMap © CARTO © FlightRadar24'
         }).addTo(map);
 
-        const markersGroup = L.markerClusterGroup({
-            disableClusteringAtZoom: 8,
-            maxClusterRadius: 50
-        });
+        const markersGroup = L.markerClusterGroup({ disableClusteringAtZoom: 8, maxClusterRadius: 50 });
         map.addLayer(markersGroup);
 
         const statusPanel = document.getElementById('status-panel');
         let timeoutId;
+        
+        // Глобальний словник для зберігання літаків (щоб вони не блимали при оновленні)
+        if (!window.planesMarkers) window.planesMarkers = {};
 
-        // Глобальна функція (JSONP callback) - сюди впадуть дані прямо з серверів FR24
+        // Міні-словник популярних аеропортів для розшифровки маршрутів
+        const iataDict = {
+            "KBP": "Київ", "WAW": "Варшава", "DXB": "Дубай", "BRU": "Брюссель",
+            "LHR": "Лондон (Хітроу)", "JFK": "Нью-Йорк", "CDG": "Париж", "AMS": "Амстердам",
+            "FRA": "Франкфурт", "IST": "Стамбул", "MUC": "Мюнхен", "VIE": "Відень",
+            "RMO": "Кишинів", "KRK": "Краків", "PRG": "Прага", "BER": "Берлін",
+            "LAX": "Лос-Анджелес", "NRT": "Токіо", "SIN": "Токіо"
+        };
+
         window.processFR24Data = function(data) {
-            clearTimeout(timeoutId); // Дані отримано, скасовуємо таймер помилки
-
-            markersGroup.clearLayers();
-            const newMarkers = [];
+            clearTimeout(timeoutId);
+            const currentKeys = new Set();
             let count = 0;
 
             for (let key in data) {
                 if (key === 'full_count' || key === 'version' || key === 'stats') continue;
                 
+                currentKeys.add(key);
+                count++;
+
                 const plane = data[key];
                 const lat = plane[1];
                 const lon = plane[2];
@@ -91,39 +75,60 @@
                 const speedKnots = plane[5];
                 const model = plane[8] || "Невідома модель";
                 const reg = plane[9] || "N/A";
-                const from = plane[11] || "—";
-                const to = plane[12] || "—";
-                const flightNum = plane[13] || "Приватний";
+                const fromRaw = plane[11] || "—";
+                const toRaw = plane[12] || "—";
+                const flightNum = plane[13] || "Приватний/N/A";
 
                 if (lat == null || lon == null) continue;
 
-                // Конвертуємо фути в метри, вузли в км/год
                 const altMeters = Math.round(altFeet * 0.3048);
                 const speedKmh = Math.round(speedKnots * 1.852);
+
+                // Розшифровуємо міста, якщо знаємо їх, або залишаємо код
+                const fromCity = iataDict[fromRaw] || fromRaw;
+                const toCity = iataDict[toRaw] || toRaw;
 
                 const planeHtmlIcon = L.divIcon({
                     className: 'custom-div-icon',
                     html: `<div class="plane-icon" style="transform: rotate(${track}deg);">✈️</div>`,
-                    iconSize: [20, 20],
-                    iconAnchor: [10, 10]
+                    iconSize: [20, 20], iconAnchor: [10, 10]
                 });
 
                 const popupText = `
                     <b>Рейс:</b> ${flightNum} (${reg})<br>
                     <b>Модель:</b> ${model}<br>
-                    <b>Маршрут:</b> ${from} ➡️ ${to}<br>
+                    <b>Маршрут:</b> ${fromCity} ➡️ ${toCity} <span style="font-size:10px; color:#888;">(IATA)</span><br>
                     <b>Висота:</b> ${altMeters} м<br>
                     <b>Швидкість:</b> ${speedKmh} км/год<br>
                     <hr style="margin: 5px 0;">
                     <a href="https://www.flightradar24.com/${key}" target="_blank" class="fr-btn">🗺 Відкрити на FlightRadar</a>
                 `;
 
-                const marker = L.marker([lat, lon], { icon: planeHtmlIcon }).bindPopup(popupText);
-                newMarkers.push(marker);
-                count++;
+                if (window.planesMarkers[key]) {
+                    // Якщо літак вже є - просто ПЛАВНО рухаємо його і оновлюємо дані
+                    const marker = window.planesMarkers[key];
+                    marker.setLatLng([lat, lon]);
+                    marker.setIcon(planeHtmlIcon);
+                    
+                    // Оновлюємо текст тільки якщо віконце не відкрите (щоб не блимало)
+                    if (!marker.isPopupOpen()) {
+                        marker.setPopupContent(popupText);
+                    }
+                } else {
+                    // Створюємо новий літак
+                    const marker = L.marker([lat, lon], { icon: planeHtmlIcon }).bindPopup(popupText);
+                    markersGroup.addLayer(marker);
+                    window.planesMarkers[key] = marker;
+                }
             }
 
-            markersGroup.addLayers(newMarkers);
+            // Видаляємо з карти літаки, які приземлилися або зникли з радарів
+            for (let key in window.planesMarkers) {
+                if (!currentKeys.has(key)) {
+                    markersGroup.removeLayer(window.planesMarkers[key]);
+                    delete window.planesMarkers[key];
+                }
+            }
             
             statusPanel.innerHTML = `✅ FlightRadar активний. Бортів: ${count}`;
             statusPanel.style.color = "#00ff00";
@@ -131,34 +136,27 @@
         };
 
         function fetchPlanes() {
-            statusPanel.innerHTML = "📡 Підключення до супутників FR24...";
-            statusPanel.style.color = "#ffff00";
-            statusPanel.style.borderColor = "#ffff00";
+            statusPanel.innerHTML = "📡 Оновлення координат...";
+            statusPanel.style.color = "#ffff00"; statusPanel.style.borderColor = "#ffff00";
 
-            // Метод JSONP - створюємо прихований тег <script>. Браузер ніколи не блокує скрипти!
             const script = document.createElement('script');
             script.id = 'fr24-script';
             
-            // Запитуємо зону: Європа + Україна
-           script.src = 'https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=65.0,35.0,-10.0,45.0&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1&maxage=14400&gliders=0&stats=0&callback=processFR24Data';
+            // ЗОНА: ВЕСЬ СВІТ (bounds=90.0,-90.0,-180.0,180.0)
+            script.src = 'https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=90.0,-90.0,-180.0,180.0&faa=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=0&estimated=1&maxage=14400&gliders=0&stats=0&callback=processFR24Data';
             
             const oldScript = document.getElementById('fr24-script');
             if (oldScript) oldScript.remove();
-
-            // Вставка скрипта автоматично запускає запит
             document.body.appendChild(script);
 
-            // Якщо немає відповіді 10 секунд
             timeoutId = setTimeout(() => {
                 statusPanel.innerHTML = "❌ Втрачено зв'язок (Таймаут).";
-                statusPanel.style.color = "#ff4d4d";
-                statusPanel.style.borderColor = "#ff4d4d";
+                statusPanel.style.color = "#ff4d4d"; statusPanel.style.borderColor = "#ff4d4d";
             }, 10000);
         }
 
         fetchPlanes();
-        setInterval(fetchPlanes, 15000); // FR24 легко тримає оновлення кожні 15 сек
+        setInterval(fetchPlanes, 10000); // Оновлюємо кожні 10 секунд для плавності
     </script>
 </body>
 </html>
-
