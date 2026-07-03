@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Глобальний Радар (Літаки + Кораблі)</title>
+    <title>Глобальний Радар (Тактичний Центр)</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -16,20 +16,20 @@
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; font-family: Arial, sans-serif;}
         #map { height: 100vh; width: 100vw; }
         
-        .icon-container { font-size: 20px; text-align: center; line-height: 20px; transform-origin: center center; }
+        .icon-container { font-size: 18px; text-align: center; line-height: 18px; transform-origin: center center; }
         .leaflet-popup-content { font-size: 14px; }
         
         .fr-btn { display: inline-block; margin-top: 10px; padding: 5px 10px; border-radius: 5px; font-weight: bold; width: 100%; text-align: center; box-sizing: border-box; text-decoration: none; color: white;}
         .btn-plane { background: #ff9900; color: #000; }
         .btn-ship { background: #0088cc; }
+        .btn-train { background: #9c27b0; }
+        .btn-base { background: #4caf50; color: #000; cursor: default;}
 
-        /* Системні панелі */
         #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background-color: rgba(30, 30, 30, 0.85); color: #ff4d4d; border: 2px solid #ff4d4d; padding: 10px 20px; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; backdrop-filter: blur(5px); }
         #status-panel { position: absolute; top: 15px; left: 15px; z-index: 9999; background-color: rgba(0, 0, 0, 0.8); color: #00ff00; border: 1px solid #00ff00; padding: 10px; border-radius: 8px; font-size: 14px; font-family: monospace; font-weight: bold; }
         
-        /* Панель перемикання режимів */
-        #mode-toggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; gap: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 15px; backdrop-filter: blur(5px); border: 1px solid #555; }
-        .mode-btn { padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; background: #333; color: white; transition: 0.3s; }
+        #mode-toggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; gap: 5px; background: rgba(0,0,0,0.7); padding: 5px; border-radius: 15px; backdrop-filter: blur(5px); border: 1px solid #555; width: 95%; max-width: 500px; justify-content: center;}
+        .mode-btn { flex: 1; padding: 8px 2px; font-size: 13px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; background: #333; color: white; transition: 0.3s; text-align: center;}
         .mode-btn.active { background: #00ff00; color: black; box-shadow: 0 0 10px #00ff00; }
     </style>
 </head>
@@ -39,8 +39,10 @@
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData){window.Telegram.WebApp.close();}else{window.close();}">✖ Закрити</button>
 
     <div id="mode-toggle">
-        <button id="btn-planes" class="mode-btn active" onclick="switchMode('planes')">✈️ Літаки</button>
-        <button id="btn-ships" class="mode-btn" onclick="switchMode('ships')">🚢 Кораблі</button>
+        <button id="btn-planes" class="mode-btn active" onclick="switchMode('planes')">✈️ Авіація</button>
+        <button id="btn-ships" class="mode-btn" onclick="switchMode('ships')">🚢 Флот</button>
+        <button id="btn-trains" class="mode-btn" onclick="switchMode('trains')">🚆 Поїзди</button>
+        <button id="btn-bases" class="mode-btn" onclick="switchMode('bases')">🛡 Бази</button>
     </div>
 
     <div id="map"></div>
@@ -61,25 +63,48 @@
         let updateIntervalId;
         let timeoutId;
 
-        // ==========================
-        // ЛОГІКА ДЛЯ ЛІТАКІВ (FlightRadar24)
-        // ==========================
-        window.processFR24Data = function(data) {
-            if(currentMode !== 'planes') return; // Блокуємо відмальовку, якщо перемкнули режим
-            clearTimeout(timeoutId); 
+        if (!window.planesMarkers) window.planesMarkers = {};
 
+        // === БАЗИ ===
+        const militaryBases = [
+            { name: "База Рамштайн (Ramstein Air Base)", lat: 49.436, lon: 7.600, country: "🇩🇪 Німеччина", type: "Військово-повітряна", icon: "🛩️", info: "Найбільша база ВПС США в Європі та штаб-квартира ВПС НАТО." },
+            { name: "ВМБ Норфолк (Naval Station Norfolk)", lat: 36.936, lon: -76.323, country: "🇺🇸 США", type: "Військово-морська", icon: "⚓", info: "Найбільша військово-морська база у світі." },
+            { name: "База Інджирлік (Incirlik Air Base)", lat: 36.982, lon: 35.425, country: "🇹🇷 Туреччина", type: "Військово-повітряна", icon: "🛩️", info: "Стратегічна база НАТО на Близькому Сході." }
+        ];
+
+        function loadMilitaryBases() {
             markersGroup.clearLayers();
             const newMarkers = [];
+            militaryBases.forEach(base => {
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div class="icon-container" style="background: rgba(0,255,0,0.2); border-radius: 50%; padding: 5px; border: 1px solid #0f0;">${base.icon}</div>`,
+                    iconSize: [30, 30], iconAnchor: [15, 15]
+                });
+                const popupText = `<b>Об'єкт:</b> ${base.name}<br><b>Країна:</b> ${base.country}<br><b>Тип:</b> ${base.type}<br><hr style="margin: 5px 0;"><span style="font-size: 12px; color: #ccc;"><i>${base.info}</i></span><br><div class="fr-btn btn-base">🔒 Секретний об'єкт</div>`;
+                newMarkers.push(L.marker([base.lat, base.lon], { icon: icon }).bindPopup(popupText));
+            });
+            markersGroup.addLayers(newMarkers);
+            statusPanel.innerHTML = `✅ Бази завантажено: ${militaryBases.length}`;
+            statusPanel.style.color = "#00ff00"; statusPanel.style.borderColor = "#00ff00";
+        }
+
+        // === ЛІТАКИ ===
+        window.processFR24Data = function(data) {
+            if(currentMode !== 'planes') return;
+            clearTimeout(timeoutId); 
+            const currentKeys = new Set();
             let count = 0;
 
             for (let key in data) {
                 if (key === 'full_count' || key === 'version' || key === 'stats') continue;
-                
+                currentKeys.add(key);
+                count++;
+
                 const plane = data[key];
                 const lat = plane[1]; const lon = plane[2]; const track = plane[3];
                 const altMeters = Math.round((plane[4] || 0) * 0.3048);
                 const speedKmh = Math.round((plane[5] || 0) * 1.852);
-                const flightNum = plane[13] || "Приватний";
 
                 if (lat == null || lon == null) continue;
 
@@ -89,26 +114,33 @@
                     iconSize: [20, 20], iconAnchor: [10, 10]
                 });
 
-                const popupText = `
-                    <b>Рейс:</b> ${flightNum}<br>
-                    <b>Висота:</b> ${altMeters} м<br>
-                    <b>Швидкість:</b> ${speedKmh} км/год<br>
-                    <hr style="margin: 5px 0;">
-                    <a href="https://www.flightradar24.com/${key}" target="_blank" class="fr-btn btn-plane">🗺 На FlightRadar24</a>
-                `;
+                const popupText = `<b>Рейс:</b> ${plane[13] || "N/A"}<br><b>Висота:</b> ${altMeters} м<br><b>Швидкість:</b> ${speedKmh} км/год<br><hr style="margin: 5px 0;"><a href="https://www.flightradar24.com/${key}" target="_blank" class="fr-btn btn-plane">🗺 На FlightRadar24</a>`;
 
-                newMarkers.push(L.marker([lat, lon], { icon: icon }).bindPopup(popupText));
-                count++;
+                if (window.planesMarkers[key]) {
+                    const marker = window.planesMarkers[key];
+                    marker.setLatLng([lat, lon]);
+                    marker.setIcon(icon);
+                    if (!marker.isPopupOpen()) marker.setPopupContent(popupText);
+                } else {
+                    const marker = L.marker([lat, lon], { icon: icon }).bindPopup(popupText);
+                    markersGroup.addLayer(marker);
+                    window.planesMarkers[key] = marker;
+                }
             }
 
-            markersGroup.addLayers(newMarkers);
-            statusPanel.innerHTML = `✅ Літаків у повітрі: ${count}`;
+            for (let key in window.planesMarkers) {
+                if (!currentKeys.has(key)) {
+                    markersGroup.removeLayer(window.planesMarkers[key]);
+                    delete window.planesMarkers[key];
+                }
+            }
+            statusPanel.innerHTML = `✅ Авіація. Бортів: ${count}`;
             statusPanel.style.color = "#00ff00"; statusPanel.style.borderColor = "#00ff00";
         };
 
         function fetchPlanes() {
             if(currentMode !== 'planes') return;
-            statusPanel.innerHTML = "📡 З'єднання з FlightRadar24...";
+            statusPanel.innerHTML = "📡 З'єднання з FR24...";
             statusPanel.style.color = "#ffff00"; statusPanel.style.borderColor = "#ffff00";
 
             const script = document.createElement('script');
@@ -120,29 +152,21 @@
             document.body.appendChild(script);
 
             timeoutId = setTimeout(() => {
-                if(currentMode === 'planes') {
-                    statusPanel.innerHTML = "❌ Втрачено зв'язок з FR24.";
-                    statusPanel.style.color = "#ff4d4d"; statusPanel.style.borderColor = "#ff4d4d";
-                }
+                if(currentMode === 'planes') { statusPanel.innerHTML = "❌ Таймаут FR24."; statusPanel.style.color = "#ff4d4d"; }
             }, 10000);
         }
 
-        // ==========================
-        // ЛОГІКА ДЛЯ КОРАБЛІВ (Digitraffic AIS)
-        // ==========================
+        // === КОРАБЛІ ===
         async function fetchShips() {
             if(currentMode !== 'ships') return;
-            statusPanel.innerHTML = "📡 Підключення до морських радарів (AIS)...";
+            statusPanel.innerHTML = "📡 Пошук морських цілей...";
             statusPanel.style.color = "#ffff00"; statusPanel.style.borderColor = "#ffff00";
 
             try {
-                // Відкритий урядовий API (CORS дозволено нативно)
                 const response = await fetch('https://meri.digitraffic.fi/api/ais/v1/locations');
-                if (!response.ok) throw new Error("Помилка з'єднання");
-                
+                if (!response.ok) throw new Error("Помилка");
                 const data = await response.json();
-                
-                if(currentMode !== 'ships') return; // Якщо користувач перемкнув вкладку, поки йшов запит
+                if(currentMode !== 'ships') return; 
                 markersGroup.clearLayers();
                 
                 const newMarkers = [];
@@ -150,14 +174,10 @@
 
                 data.features.forEach(ship => {
                     const coords = ship.geometry.coordinates;
+                    if (!coords) return;
                     const props = ship.properties;
-                    if (!coords || coords.length < 2) return;
-
-                    const lon = coords[0];
-                    const lat = coords[1];
-                    const mmsi = props.mmsi; // Унікальний номер судна
                     const heading = props.heading || props.cog || 0;
-                    const speedKmh = props.sog ? Math.round(props.sog * 1.852) : 0; // Вузли у км/год
+                    const speedKmh = props.sog ? Math.round(props.sog * 1.852) : 0;
 
                     const icon = L.divIcon({
                         className: 'custom-div-icon',
@@ -165,55 +185,97 @@
                         iconSize: [20, 20], iconAnchor: [10, 10]
                     });
 
-                    // Кнопка буде шукати корабель на MarineTraffic за його унікальним MMSI ID
-                    const popupText = `
-                        <b>ID Судна (MMSI):</b> ${mmsi}<br>
-                        <b>Курс:</b> ${heading}°<br>
-                        <b>Швидкість:</b> ${speedKmh} км/год<br>
-                        <hr style="margin: 5px 0;">
-                        <a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${mmsi}" target="_blank" class="fr-btn btn-ship">🗺 Знайти на MarineTraffic</a>
-                    `;
-
-                    newMarkers.push(L.marker([lat, lon], { icon: icon }).bindPopup(popupText));
+                    const popupText = `<b>MMSI:</b> ${props.mmsi}<br><b>Курс:</b> ${heading}°<br><b>Швидкість:</b> ${speedKmh} км/год<br><hr style="margin: 5px 0;"><a href="https://www.marinetraffic.com/en/ais/details/ships/mmsi:${props.mmsi}" target="_blank" class="fr-btn btn-ship">🗺 На MarineTraffic</a>`;
+                    newMarkers.push(L.marker([coords[1], coords[0]], { icon: icon }).bindPopup(popupText));
                     count++;
                 });
 
                 markersGroup.addLayers(newMarkers);
-                statusPanel.innerHTML = `✅ Кораблів на радарі: ${count}`;
+                statusPanel.innerHTML = `✅ Флот. Суден: ${count}`;
+                statusPanel.style.color = "#00ff00"; statusPanel.style.borderColor = "#00ff00";
+            } catch (error) {
+                statusPanel.innerHTML = "❌ Помилка AIS."; statusPanel.style.color = "#ff4d4d";
+            }
+        }
+
+        // === ПОЇЗДИ (Фінляндія) ===
+        async function fetchTrains() {
+            if(currentMode !== 'trains') return;
+            statusPanel.innerHTML = "📡 Відстеження залізниці...";
+            statusPanel.style.color = "#ffff00"; statusPanel.style.borderColor = "#ffff00";
+
+            try {
+                // Відкритий API залізниці Фінляндії
+                const response = await fetch('https://rata.digitraffic.fi/api/v1/train-locations/latest/');
+                if (!response.ok) throw new Error("Помилка");
+                const data = await response.json();
+                
+                if(currentMode !== 'trains') return; 
+                markersGroup.clearLayers();
+                
+                const newMarkers = [];
+                let count = 0;
+
+                data.forEach(train => {
+                    if (!train.location || !train.location.coordinates) return;
+                    const coords = train.location.coordinates; // [lon, lat]
+                    
+                    const icon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div class="icon-container">🚆</div>`,
+                        iconSize: [20, 20], iconAnchor: [10, 10]
+                    });
+
+                    const popupText = `
+                        <b>Поїзд №:</b> ${train.trainNumber}<br>
+                        <b>Швидкість:</b> ${train.speed} км/год<br>
+                        <hr style="margin: 5px 0;">
+                        <div class="fr-btn btn-train">Державна залізниця</div>
+                    `;
+                    newMarkers.push(L.marker([coords[1], coords[0]], { icon: icon }).bindPopup(popupText));
+                    count++;
+                });
+
+                markersGroup.addLayers(newMarkers);
+                statusPanel.innerHTML = `✅ Залізниця. Складів: ${count}`;
                 statusPanel.style.color = "#00ff00"; statusPanel.style.borderColor = "#00ff00";
 
             } catch (error) {
-                console.error("Помилка AIS:", error);
-                statusPanel.innerHTML = "❌ Втрачено зв'язок з AIS радарами.";
-                statusPanel.style.color = "#ff4d4d"; statusPanel.style.borderColor = "#ff4d4d";
+                statusPanel.innerHTML = "❌ Помилка залізниці."; statusPanel.style.color = "#ff4d4d";
             }
         }
 
         // ==========================
-        // ПЕРЕМИКАЧ РЕЖИМІВ
+        // УПРАВЛІННЯ РЕЖИМАМИ
         // ==========================
         window.switchMode = function(mode) {
             currentMode = mode;
             clearInterval(updateIntervalId);
             clearTimeout(timeoutId);
             markersGroup.clearLayers();
+            window.planesMarkers = {};
 
-            // Оновлюємо стилі кнопок
-            document.getElementById('btn-planes').classList.toggle('active', mode === 'planes');
-            document.getElementById('btn-ships').classList.toggle('active', mode === 'ships');
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + mode).classList.add('active');
 
             if (mode === 'planes') {
-                map.flyTo([49.0, 31.0], 4, { duration: 1.5 }); // Летимо в центр Європи
+                map.flyTo([49.0, 31.0], 4, { duration: 1 });
                 fetchPlanes();
-                updateIntervalId = setInterval(fetchPlanes, 15000); // Літаки швидкі
-            } else {
-                map.flyTo([59.0, 22.0], 5, { duration: 1.5 }); // Летимо на Балтійське море (зона дії радара)
+                updateIntervalId = setInterval(fetchPlanes, 15000);
+            } else if (mode === 'ships') {
+                map.flyTo([59.0, 22.0], 5, { duration: 1 });
                 fetchShips();
-                updateIntervalId = setInterval(fetchShips, 30000); // Кораблі повільні, оновлюємо рідше
+                updateIntervalId = setInterval(fetchShips, 30000);
+            } else if (mode === 'trains') {
+                map.flyTo([62.0, 25.0], 6, { duration: 1 }); // Летимо у Фінляндію
+                fetchTrains();
+                updateIntervalId = setInterval(fetchTrains, 10000); // Поїзди оновлюються часто
+            } else if (mode === 'bases') {
+                map.flyTo([30.0, 0.0], 2, { duration: 1 });
+                loadMilitaryBases();
             }
         };
 
-        // Запуск системи
         switchMode('planes');
     </script>
 </body>
