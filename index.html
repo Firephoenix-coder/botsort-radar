@@ -129,31 +129,71 @@
             statusPanel.style.borderColor = "#00ff00";
         };
 
-        function fetchPlanes() {
-            statusPanel.innerHTML = "📡 Отримання даних (JSONP)...";
-            statusPanel.style.color = "#ffff00";
-            statusPanel.style.borderColor = "#ffff00";
+      async function fetchPlanes() {
+            statusPanel.innerHTML = "📡 Обхід CORS через проксі...";
+            statusPanel.style.color = "#ff0"; statusPanel.style.borderColor = "#ff0";
 
-            // Створюємо скрипт для JSONP (ЦЕ ПРОБИВАЄ БУДЬ-ЯКИЙ ЗАХИСТ Telegram!)
-            const script = document.createElement('script');
-            script.id = 'fr24-script';
-            
-            // Межі радара: Північ 65, Південь 35, Захід -10, Схід 45 (Вся Європа + Україна)
-            script.src = 'https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=65.0,35.0,-10.0,45.0&callback=processFR24Data';
-            
-            // Видаляємо старий запит, якщо він був
-            const oldScript = document.getElementById('fr24-script');
-            if (oldScript) oldScript.remove();
+            try {
+                // Цільова адреса OpenSky (Європа/Україна)
+                const targetUrl = 'https://opensky-network.org/api/states/all?lamin=40.0&lomin=15.0&lamax=60.0&lomax=45.0';
+                
+                // Пропускаємо через AllOrigins, щоб убити захист CORS
+                const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
+                
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error(`Помилка проксі: ${response.status}`);
 
-            // Додаємо скрипт на сторінку (в цей момент браузер завантажує літаки)
-            document.body.appendChild(script);
+                const proxyData = await response.json();
+                
+                // Перевіряємо, чи не зловив сам проксі 429 помилку від OpenSky
+                if (proxyData.status && proxyData.status.http_code === 429) {
+                    statusPanel.innerHTML = "❌ Бан по IP (429). OpenSky заблокував проксі.";
+                    statusPanel.style.color = "#f44"; statusPanel.style.borderColor = "#f44";
+                    return;
+                }
 
-            // Якщо FlightRadar не відповів за 10 секунд — показуємо помилку
-            timeoutId = setTimeout(() => {
-                statusPanel.innerHTML = "❌ Втрачено зв'язок (Таймаут).";
-                statusPanel.style.color = "#ff4d4d";
-                statusPanel.style.borderColor = "#ff4d4d";
-            }, 10000);
+                // Розпаковуємо сирий текст від OpenSky назад у JSON
+                const data = JSON.parse(proxyData.contents);
+                if (!data || !data.states) throw new Error("Немає даних про літаки");
+
+                markersGroup.clearLayers();
+                const newMarkers = [];
+
+                data.states.forEach(plane => {
+                    if (plane[6] === null || plane[5] === null) return;
+
+                    const callsign = plane[1] ? plane[1].trim() : "N/A";
+                    const true_track = plane[10] || 0;
+                    
+                    const planeHtmlIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: `<div class="plane-icon" style="transform: rotate(${true_track}deg);">✈️</div>`,
+                        iconSize: [20, 20], iconAnchor: [10, 10]
+                    });
+
+                    const speedKmh = plane[9] ? Math.round(plane[9] * 3.6) : 0;
+                    const altMeters = plane[13] ? Math.round(plane[13]) + ' м' : 'На землі';
+
+                    const popupText = `
+                        <b>Позивний:</b> ${callsign}<br>
+                        <b>Висота:</b> ${altMeters}<br>
+                        <b>Швидкість:</b> ${speedKmh} км/год<br>
+                        <hr style="margin: 5px 0;">
+                        <a href="https://www.flightradar24.com/${callsign}" target="_blank" class="fr-btn">Деталі рейсу (FR24)</a>
+                    `;
+
+                    newMarkers.push(L.marker([plane[6], plane[5]], { icon: planeHtmlIcon }).bindPopup(popupText));
+                });
+
+                markersGroup.addLayers(newMarkers);
+                statusPanel.innerHTML = `✅ Радар активний. Бортів: ${newMarkers.length}`;
+                statusPanel.style.color = "#0f0"; statusPanel.style.borderColor = "#0f0";
+
+            } catch (error) {
+                statusPanel.innerHTML = `❌ Помилка: ${error.message}`;
+                statusPanel.style.color = "#f44"; statusPanel.style.borderColor = "#f44";
+                console.error("Деталі помилки:", error);
+            }
         }
 
         // Запуск
