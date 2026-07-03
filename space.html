@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Орбітальний Радар (Оптимізований)</title>
+    <title>Орбітальний Радар (Анти-Бан + HUD)</title>
     
     <script src="https://unpkg.com/three"></script>
     <script src="https://unpkg.com/globe.gl"></script>
@@ -17,12 +17,10 @@
         #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background: rgba(0, 0, 0, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
         #status-panel { position: absolute; top: 15px; left: 15px; z-index: 9999; background: rgba(0, 20, 40, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px; border-radius: 5px; font-size: 14px; font-weight: bold; pointer-events: none; }
         
-        /* Панель фільтрів (організацій) */
         #mode-toggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-wrap: wrap; gap: 5px; background: rgba(0,20,40,0.8); padding: 5px; border-radius: 10px; border: 1px solid #00ffcc; width: 95%; max-width: 500px; justify-content: center;}
         .mode-btn { flex: 1; min-width: 80px; padding: 8px 5px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid #333; border-radius: 5px; background: #001122; color: #00ffcc; transition: 0.3s; text-align: center;}
         .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 10px #00ffcc; border-color: #00ffcc;}
 
-        /* Тактичний HUD (Дисплей вибраної цілі) */
         #target-hud {
             display: none; position: absolute; top: 70px; left: 15px; z-index: 9999;
             background: rgba(0, 15, 30, 0.95); border: 2px solid #ffaa00; border-radius: 8px;
@@ -37,7 +35,6 @@
         .hud-org { display: inline-block; background: #ffaa00; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 11px; margin-bottom: 10px; text-transform: uppercase;}
         #close-hud { background: transparent; border: none; color: #888; cursor: pointer; position: absolute; top: 5px; right: 5px; font-size: 16px;}
         
-        /* Емодзі-маркери на карті */
         .sat-emoji {
             cursor: pointer; pointer-events: auto; text-shadow: 0 0 10px rgba(0, 255, 204, 0.8);
             transition: transform 0.2s;
@@ -47,7 +44,7 @@
 </head>
 <body>
 
-    <div id="status-panel">⚙️ Завантаження баз...</div>
+    <div id="status-panel">⚙️ Завантаження баз через проксі...</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp){window.Telegram.WebApp.close();}else{window.close();}">✖ Вихід</button>
 
     <div id="target-hud">
@@ -62,9 +59,9 @@
     </div>
 
     <div id="mode-toggle">
-        <button id="btn-stations" class="mode-btn active" onclick="setFilter('stations')">🌍 Станції</button>
-        <button id="btn-starlink" class="mode-btn" onclick="setFilter('starlink')">🇺🇸 SpaceX</button>
-        <button id="btn-nav" class="mode-btn" onclick="setFilter('nav')">📡 Навігація (GPS)</button>
+        <button id="btn-stations" class="mode-btn active" onclick="setFilter('stations')">🚀 Станції</button>
+        <button id="btn-starlink" class="mode-btn" onclick="setFilter('starlink')">🛰️ SpaceX</button>
+        <button id="btn-nav" class="mode-btn" onclick="setFilter('nav')">📡 Навігація</button>
     </div>
 
     <div id="globeViz"></div>
@@ -75,27 +72,21 @@
         const EARTH_RADIUS_KM = 6371;
         const statusPanel = document.getElementById('status-panel');
         let satData = [];
-        let currentFilter = 'stations'; // За замовчуванням показуємо станції
+        let currentFilter = 'stations';
         let lockedTargetName = null;
 
-        // --- СЛОВНИК ОРГАНІЗАЦІЙ ТА КРАЇН ---
         function getSatInfo(name) {
             const n = name.toUpperCase();
-            // Станції
-            if (n.includes('ISS') || n.includes('ZARYA')) return { type: 'stations', org: 'NASA/Міжнародна', flag: '🌐', emoji: '🚀', size: '28px' };
+            if (n.includes('ISS') || n.includes('ZARYA')) return { type: 'stations', org: 'NASA/МКС', flag: '🌐', emoji: '🚀', size: '28px' };
             if (n.includes('TIANGONG') || n.includes('CSS')) return { type: 'stations', org: 'CNSA (Китай)', flag: '🇨🇳', emoji: '🚀', size: '28px' };
-            // Starlink
             if (n.includes('STARLINK')) return { type: 'starlink', org: 'SpaceX (США)', flag: '🇺🇸', emoji: '🛰️', size: '16px' };
-            // Навігація (GPS, ГЛОНАСС, Galileo)
             if (n.includes('NAVSTAR') || n.includes('GPS')) return { type: 'nav', org: 'USSF (Військові США)', flag: '🇺🇸', emoji: '📡', size: '20px' };
             if (n.includes('GLONASS') || n.includes('COSMOS')) return { type: 'nav', org: 'Роскосмос (РФ)', flag: '🇷🇺', emoji: '📡', size: '20px' };
             if (n.includes('GALILEO')) return { type: 'nav', org: 'ESA (Європа)', flag: '🇪🇺', emoji: '📡', size: '20px' };
             if (n.includes('BEIDOU')) return { type: 'nav', org: 'CNSA (Китай)', flag: '🇨🇳', emoji: '📡', size: '20px' };
-            
             return { type: 'other', org: 'Невідомо', flag: '🏳️', emoji: '🛸', size: '16px' };
         }
 
-        // --- ІНІЦІАЛІЗАЦІЯ ГЛОБУСА ---
         const world = Globe()
             (document.getElementById('globeViz'))
             .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
@@ -104,17 +95,16 @@
             .showAtmosphere(true)
             .atmosphereColor('#00ffff')
             .atmosphereAltitude(0.15)
-            // Використовуємо ТІЛЬКИ HTML елементи для об'єктів
             .htmlElementsData([])
+            .htmlAltitude('alt') // КРИТИЧНЕ ВИПРАВЛЕННЯ: вказуємо глобусу, де брати висоту!
             .htmlElement(d => {
                 const el = document.createElement('div');
                 el.className = 'sat-emoji';
                 el.innerHTML = d.info.emoji;
-                el.style.fontSize = d.name === lockedTargetName ? '35px' : d.info.size; // Збільшуємо вибраний
+                el.style.fontSize = d.name === lockedTargetName ? '40px' : d.info.size;
                 
-                // Клік на емодзі
                 el.onclick = (e) => {
-                    e.stopPropagation(); // Щоб глобус не перехопив клік
+                    e.stopPropagation(); 
                     lockedTargetName = d.name;
                     document.getElementById('target-hud').style.display = 'block';
                 };
@@ -125,33 +115,31 @@
         world.controls().autoRotate = true;
         world.controls().autoRotateSpeed = 0.5;
 
-        // Глобальне світло
         setTimeout(() => { scene = world.scene(); scene.add(new THREE.AmbientLight(0xffffff, 0.9)); }, 500);
 
-        // --- ЗАКРИТТЯ ЦІЛІ ---
         window.unlockTarget = function() {
             lockedTargetName = null;
             document.getElementById('target-hud').style.display = 'none';
         }
 
-        // Клік в порожнечу скидає ціль
         document.getElementById('globeViz').addEventListener('click', () => { unlockTarget(); });
 
-        // --- ПАРСИНГ БАЗ ДАНИХ ---
         async function loadSatellites() {
             try {
-                // Беремо 3 різні бази: Станції, Навігацію (GPS) та Starlink
+                // Анти-бан: пропускаємо запити через raw-проксі AllOrigins
+                const proxy = 'https://api.allorigins.win/raw?url=';
                 const [stationsRes, navRes, starlinkRes] = await Promise.all([
-                    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'),
-                    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle'),
-                    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
+                    fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle')),
+                    fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle')),
+                    fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle'))
                 ]);
                 
+                if (!stationsRes.ok) throw new Error("Проксі відхилив запит");
+
                 const stationsText = await stationsRes.text();
                 const navText = await navRes.text();
                 const starlinkText = await starlinkRes.text();
 
-                // ОПТИМІЗАЦІЯ: Зі Starlink беремо лише перші 150 супутників (450 рядків), щоб не навантажувати DOM
                 const starlinkLines = starlinkText.split('\n').slice(0, 450);
                 const allLines = [...stationsText.split('\n'), ...navText.split('\n'), ...starlinkLines].map(line => line.trim());
                 
@@ -164,7 +152,6 @@
                         try {
                             const satrec = satellite.twoline2satrec(tle1, tle2);
                             const info = getSatInfo(name);
-                            // Зберігаємо тільки якщо ми знаємо цей тип (фільтруємо сміття)
                             if (info.type !== 'other') {
                                 satData.push({ name: name, satrec: satrec, info: info });
                             }
@@ -172,36 +159,33 @@
                     }
                 }
 
-                statusPanel.innerHTML = `✅ Бази завантажено`;
+                // Виводимо точну кількість, щоб ти знав, що парсер спрацював
+                statusPanel.innerHTML = `✅ Бази завантажено: ${satData.length} об'єктів`;
                 updateSatellites();
 
             } catch (error) {
-                statusPanel.innerHTML = "❌ Помилка завантаження.";
+                statusPanel.innerHTML = "❌ Помилка завантаження. Спробуй пізніше.";
                 statusPanel.style.color = "#ff4d4d";
             }
         }
 
-        // --- ЛОГІКА КНОПОК ФІЛЬТРАЦІЇ ---
         window.setFilter = function(filter) {
             currentFilter = filter;
             unlockTarget(); 
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById('btn-' + filter).classList.add('active');
             
-            // Наближаємо або віддаляємо камеру залежно від висоти об'єктів
             if(filter === 'stations') world.camera().position.z = 150;
-            else if(filter === 'nav') world.camera().position.z = 350; // GPS дуже високо
+            else if(filter === 'nav') world.camera().position.z = 400; // Навігація дуже високо!
             else world.camera().position.z = 250;
         };
 
-        // --- ФІЗИКА ТА РЕНДЕР (Щосекунди) ---
         function updateSatellites() {
             const now = new Date();
             const gmst = satellite.gstime(now);
             const visibleSats = [];
 
             satData.forEach(sat => {
-                // ПРЯМА ОПТИМІЗАЦІЯ: Прораховуємо і виводимо ТІЛЬКИ ті супутники, які вибрані в фільтрі
                 if (sat.info.type !== currentFilter) return;
 
                 const positionAndVelocity = satellite.propagate(sat.satrec, now);
@@ -225,7 +209,6 @@
                     
                     visibleSats.push(satObj);
 
-                    // Якщо це вибраний нами об'єкт - оновлюємо цифри в боковому дисплеї
                     if (sat.name === lockedTargetName) {
                         document.getElementById('hud-name').innerText = sat.name;
                         document.getElementById('hud-flag').innerText = sat.info.flag;
@@ -236,10 +219,7 @@
                 }
             });
 
-            // Відправляємо відфільтрований масив на карту
             world.htmlElementsData(visibleSats);
-            
-            // Наступний кадр через 1 секунду
             setTimeout(updateSatellites, 1000); 
         }
 
@@ -247,6 +227,4 @@
     </script>
 </body>
 </html>
-  
-    
-      
+           
