@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Орбітальний Радар (Фільтри та Аналітика)</title>
+    <title>Орбітальний Радар (Target Lock)</title>
     
     <script src="https://unpkg.com/three"></script>
     <script src="https://unpkg.com/globe.gl"></script>
@@ -15,36 +14,51 @@
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace;}
         #globeViz { height: 100vh; width: 100vw; cursor: grab; }
         
+        /* Кнопки та статуси */
         #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background: rgba(0, 0, 0, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
         #status-panel { position: absolute; top: 15px; left: 15px; z-index: 9999; background: rgba(0, 20, 40, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px; border-radius: 5px; font-size: 14px; font-weight: bold; pointer-events: none; text-shadow: 0 0 5px #00ffcc; }
         
-        /* Панель фільтрів */
         #mode-toggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; gap: 5px; background: rgba(0,20,40,0.8); padding: 5px; border-radius: 10px; border: 1px solid #00ffcc; width: 90%; max-width: 400px; justify-content: center;}
         .mode-btn { flex: 1; padding: 10px 5px; font-size: 14px; font-weight: bold; cursor: pointer; border: 1px solid transparent; border-radius: 5px; background: #001122; color: #00ffcc; transition: 0.3s; text-align: center;}
         .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 10px #00ffcc; }
 
-        /* Попап супутника */
-        .scene-tooltip {
-            background: rgba(0, 15, 30, 0.9) !important;
-            border: 1px solid #00ffcc !important;
-            border-radius: 8px !important;
-            padding: 10px !important;
-            color: #fff !important;
-            font-family: 'Arial', sans-serif !important;
-            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4) !important;
-            pointer-events: none;
-            min-width: 180px;
+        /* Простий тултип-підказка на самій планеті */
+        .scene-tooltip { background: rgba(0, 15, 30, 0.9); border: 1px solid #00ffcc; border-radius: 5px; padding: 5px 10px; color: #fff; font-size: 12px; pointer-events: none; }
+
+        /* НОВЕ: Тактичний HUD (Панель захопленої цілі) */
+        #target-hud {
+            display: none; position: absolute; top: 80px; left: 15px; z-index: 9999;
+            background: rgba(0, 15, 30, 0.95); border: 2px solid #ffaa00; border-radius: 8px;
+            padding: 15px; color: #fff; font-family: 'Arial', sans-serif;
+            box-shadow: 0 0 20px rgba(255, 170, 0, 0.4); min-width: 220px;
         }
-        .sat-name { color: #00ffcc; font-weight: bold; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between;}
-        .sat-org { font-size: 11px; color: #ffaa00; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
-        .sat-data { font-size: 13px; color: #ccc; }
-        .sat-data span { color: #fff; font-weight: bold; }
+        .hud-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 10px; }
+        .hud-title { color: #ffaa00; font-weight: bold; font-size: 16px; margin: 0; }
+        .hud-flag { font-size: 24px; }
+        .hud-row { margin-bottom: 8px; font-size: 13px; color: #ccc; }
+        .hud-row span { color: #fff; font-weight: bold; font-family: 'Courier New', monospace; font-size: 14px;}
+        .hud-org { display: inline-block; background: #ffaa00; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 11px; margin-bottom: 10px; text-transform: uppercase;}
+        
+        #close-hud { background: transparent; border: none; color: #888; cursor: pointer; position: absolute; top: 5px; right: 5px; font-size: 16px;}
+        #close-hud:hover { color: #fff; }
     </style>
 </head>
 <body>
 
-    <div id="status-panel">⚙️ З'єднання з NORAD...</div>
+    <div id="status-panel">⚙️ Радар активний</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp){window.Telegram.WebApp.close();}else{window.close();}">✖ Вихід</button>
+
+    <div id="target-hud">
+        <button id="close-hud" onclick="unlockTarget()">✖</button>
+        <div class="hud-header">
+            <h3 class="hud-title" id="hud-name">...</h3>
+            <div class="hud-flag" id="hud-flag">🛰️</div>
+        </div>
+        <div class="hud-org" id="hud-org">...</div>
+        <div class="hud-row">Висота: <span id="hud-alt">...</span> км</div>
+        <div class="hud-row">Швидкість: <span id="hud-speed">...</span> км/год</div>
+        <div class="hud-row" style="color: #00ffcc; font-size: 11px; margin-top: 10px;">🟢 ОНОВЛЕННЯ ДАНИХ LIVE</div>
+    </div>
 
     <div id="mode-toggle">
         <button id="btn-all" class="mode-btn active" onclick="setFilter('all')">🌐 Всі об'єкти</button>
@@ -61,21 +75,24 @@
         const statusPanel = document.getElementById('status-panel');
         let satData = [];
         let currentFilter = 'all';
+        let lockedTargetName = null; // Змінна для зберігання захопленого супутника
 
-        // 1. АНАЛІЗАТОР СУПУТНИКІВ (Визначає прапор, агенцію та тип)
+        // Визначаємо агенцію та прапор
         function getSatInfo(name) {
             const upperName = name.toUpperCase();
-            if (upperName.includes('ISS') || upperName.includes('ZARYA')) return { flag: '🌐', org: 'Міжнародна космічна станція', type: 'iss' };
+            if (upperName.includes('ISS') || upperName.includes('ZARYA')) return { flag: '🌐', org: 'МКС', type: 'iss' };
             if (upperName.includes('TIANGONG') || upperName.includes('CSS')) return { flag: '🇨🇳', org: 'CNSA (Китай)', type: 'iss' };
             if (upperName.includes('STARLINK')) return { flag: '🇺🇸', org: 'SpaceX', type: 'starlink' };
-            if (upperName.includes('HUBBLE') || upperName.includes('HST')) return { flag: '🇺🇸', org: 'NASA', type: 'other' };
-            if (upperName.includes('GALILEO')) return { flag: '🇪🇺', org: 'ESA (Європа)', type: 'other' };
-            if (upperName.includes('BEIDOU')) return { flag: '🇨🇳', org: 'CNSA (Китай)', type: 'other' };
-            if (upperName.includes('COSMOS')) return { flag: '🇷🇺', org: 'Роскосмос', type: 'other' };
-            return { flag: '🛰️', org: 'Невідома агенція', type: 'other' };
+            return { flag: '🛰️', org: 'Військові/Наукові', type: 'other' };
         }
 
-        // 2. ІНІЦІАЛІЗАЦІЯ ГЛОБУСА
+        const orbitsData = [
+            { id: "leo", name: "LEO Орбіта", altKm: 600, colorHex: "#00ffcc", colorVal: 0x00ffcc, angle: Math.PI / 2 },
+            { id: "meo", name: "MEO Орбіта", altKm: 20000, colorHex: "#ffaa00", colorVal: 0xffaa00, angle: Math.PI / 3 },
+            { id: "geo", name: "GEO Орбіта", altKm: 35786, colorHex: "#ff00ff", colorVal: 0xff00ff, angle: Math.PI / 2 }
+        ];
+
+        // --- ІНІЦІАЛІЗАЦІЯ 3D ---
         const world = Globe()
             (document.getElementById('globeViz'))
             .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
@@ -84,54 +101,44 @@
             .showAtmosphere(true)
             .atmosphereColor('#00ffff')
             .atmosphereAltitude(0.15)
-            .pointColor(sat => sat.info.type === 'iss' ? '#ffaa00' : '#00ffcc') // Станції - помаранчеві
+            // Налаштування WebGL точок
+            .pointColor(sat => sat.name === lockedTargetName ? '#ffffff' : (sat.info.type === 'iss' ? '#ffaa00' : '#00ffcc'))
             .pointAltitude('alt') 
-            .pointRadius(sat => sat.info.type === 'iss' ? 0.08 : 0.03) // Станції більші за розміром
+            .pointRadius(sat => sat.name === lockedTargetName ? 0.08 : (sat.info.type === 'iss' ? 0.06 : 0.03)) 
             .pointResolution(16)
-            .onPointHover(sat => { world.controls().autoRotate = !sat; })
-            .pointLabel(sat => `
-                <div class="sat-name">
-                    <span>${sat.name}</span>
-                    <span style="font-size: 20px;">${sat.info.flag}</span>
-                </div>
-                <div class="sat-org">${sat.info.org}</div>
-                <div class="sat-data">
-                    Висота: <span>${Math.round(sat.altKm)} км</span><br>
-                    Швидкість: <span>${Math.round(sat.velocity)} км/год</span><br>
-                </div>
-            `);
+            // Коли натискаємо на супутник - беремо його в "Target Lock"
+            .onPointClick(sat => {
+                lockedTargetName = sat.name;
+                document.getElementById('target-hud').style.display = 'block';
+            })
+            // Маленька підказка тільки з ім'ям (справжні дані будуть в HUD)
+            .pointLabel(sat => `<div class="scene-tooltip">${sat.info.flag} ${sat.name}</div>`)
+            // Кільця орбіт
+            .customLayerData(orbitsData)
+            .customThreeObject(d => {
+                const R = world.getGlobeRadius();
+                const geo = new THREE.TorusGeometry(R * (1 + d.altKm/EARTH_RADIUS_KM), 0.4, 16, 100);
+                const mat = new THREE.MeshBasicMaterial({color: d.colorVal, transparent: true, opacity: 0.3});
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.rotation.x = d.angle;
+                return mesh;
+            });
 
-        world.camera().position.z = 250;
+        world.camera().position.z = 350;
         world.controls().autoRotate = true;
         world.controls().autoRotateSpeed = 0.5;
 
-        // 3. ДОДАЄМО ОРБІТАЛЬНІ КІЛЬЦА (LEO та MEO)
-        setTimeout(() => {
-            const scene = world.scene();
-            const R = world.getGlobeRadius();
+        setTimeout(() => { scene = world.scene(); scene.add(new THREE.AmbientLight(0xffffff, 0.9)); }, 500);
 
-            // Кільце Низької Орбіти (LEO ~ 600 км)
-            const leoGeo = new THREE.TorusGeometry(R * (1 + 600/EARTH_RADIUS_KM), 0.1, 16, 100);
-            const leoMat = new THREE.MeshBasicMaterial({color: 0x00ffcc, transparent: true, opacity: 0.2});
-            const leoRing = new THREE.Mesh(leoGeo, leoMat);
-            leoRing.rotation.x = Math.PI / 2;
-            scene.add(leoRing);
+        // --- ЗАКРИТТЯ ЦІЛІ ---
+        window.unlockTarget = function() {
+            lockedTargetName = null;
+            document.getElementById('target-hud').style.display = 'none';
+        }
 
-            // Кільце Середньої Орбіти (GPS/ГЛОНАСС ~ 20000 км)
-            const meoGeo = new THREE.TorusGeometry(R * (1 + 20000/EARTH_RADIUS_KM), 0.2, 16, 100);
-            const meoMat = new THREE.MeshBasicMaterial({color: 0xffaa00, transparent: true, opacity: 0.1});
-            const meoRing = new THREE.Mesh(meoGeo, meoMat);
-            meoRing.rotation.x = Math.PI / 3;
-            scene.add(meoRing);
-
-            // Глобальне освітлення Землі
-            scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        }, 500);
-
-        // 4. ПАРСИНГ ДАНИХ (Космічні станції + Starlink)
+        // --- ПАРСИНГ TLE ---
         async function loadSatellites() {
             try {
-                // Завантажуємо станції та Starlink паралельно
                 const [stationsRes, starlinkRes] = await Promise.all([
                     fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'),
                     fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
@@ -140,7 +147,6 @@
                 const stationsText = await stationsRes.text();
                 const starlinkText = await starlinkRes.text();
 
-                // Обмежуємо Starlink до 300 апаратів (900 рядків), щоб не лагав телефон
                 const starlinkLines = starlinkText.split('\n').slice(0, 900);
                 const allLines = [...stationsText.split('\n'), ...starlinkLines].map(line => line.trim());
                 
@@ -152,46 +158,37 @@
                     if (name && tle1 && tle2 && tle1.startsWith('1 ') && tle2.startsWith('2 ')) {
                         try {
                             const satrec = satellite.twoline2satrec(tle1, tle2);
-                            satData.push({ 
-                                name: name, 
-                                satrec: satrec, 
-                                info: getSatInfo(name) 
-                            });
+                            satData.push({ name: name, satrec: satrec, info: getSatInfo(name) });
                         } catch(e) {} 
                     }
                 }
 
-                statusPanel.innerHTML = `✅ Орбітальний радар: <b>${satData.length}</b> об'єктів`;
+                statusPanel.innerHTML = `✅ Радар активний: <b>${satData.length}</b> об'єктів`;
                 updateSatellites();
 
             } catch (error) {
-                statusPanel.innerHTML = "❌ Помилка з'єднання з NORAD.";
+                statusPanel.innerHTML = "❌ Втрачено зв'язок з NORAD.";
                 statusPanel.style.color = "#ff4d4d";
             }
         }
 
-        // 5. ЛОГІКА ФІЛЬТРАЦІЇ
         window.setFilter = function(filter) {
             currentFilter = filter;
+            unlockTarget(); // Скидаємо ціль при зміні фільтра
             document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById('btn-' + filter).classList.add('active');
             
-            // Якщо вибрано МКС - наближаємо камеру
-            if(filter === 'iss') {
-                world.camera().position.z = 150;
-            } else {
-                world.camera().position.z = 250;
-            }
+            if(filter === 'iss') world.camera().position.z = 150;
+            else world.camera().position.z = 350;
         };
 
-        // 6. ОНОВЛЕННЯ КООРДИНАТ
+        // --- ФІЗИКА ТА ОНОВЛЕННЯ ---
         function updateSatellites() {
             const now = new Date();
             const gmst = satellite.gstime(now);
             const visibleSats = [];
 
             satData.forEach(sat => {
-                // Застосовуємо фільтр
                 if (currentFilter !== 'all' && sat.info.type !== currentFilter) return;
 
                 const positionAndVelocity = satellite.propagate(sat.satrec, now);
@@ -200,23 +197,29 @@
 
                 if (positionEci && velocityEci) {
                     const positionGd = satellite.eciToGeodetic(positionEci, gmst);
-                    const longitude = satellite.degreesLong(positionGd.longitude);
-                    const latitude = satellite.degreesLat(positionGd.latitude);
                     const altKm = positionGd.height;
-                    
-                    const velocityKmS = Math.sqrt(
-                        Math.pow(velocityEci.x, 2) + Math.pow(velocityEci.y, 2) + Math.pow(velocityEci.z, 2)
-                    );
+                    const velocityKmS = Math.sqrt(Math.pow(velocityEci.x, 2) + Math.pow(velocityEci.y, 2) + Math.pow(velocityEci.z, 2));
 
-                    visibleSats.push({
+                    const satObj = {
                         name: sat.name,
-                        lat: latitude,
-                        lng: longitude,
+                        lat: satellite.degreesLat(positionGd.latitude),
+                        lng: satellite.degreesLong(positionGd.longitude),
                         altKm: altKm,
                         alt: altKm / EARTH_RADIUS_KM, 
                         velocity: velocityKmS * 3600,
-                        info: sat.info // Передаємо інфо для відмальовки
-                    });
+                        info: sat.info 
+                    };
+                    
+                    visibleSats.push(satObj);
+
+                    // Якщо це наша захоплена ціль - ОНОВЛЮЄМО HUD!
+                    if (sat.name === lockedTargetName) {
+                        document.getElementById('hud-name').innerText = sat.name;
+                        document.getElementById('hud-flag').innerText = sat.info.flag;
+                        document.getElementById('hud-org').innerText = sat.info.org;
+                        document.getElementById('hud-alt').innerText = Math.round(satObj.altKm);
+                        document.getElementById('hud-speed').innerText = Math.round(satObj.velocity);
+                    }
                 }
             });
 
@@ -228,4 +231,4 @@
     </script>
 </body>
 </html>
-</html>
+
