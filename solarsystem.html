@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Сонячна Система (Тактичний Радар)</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace;}
+        #canvas-container { height: 100vh; width: 100vw; display: block; }
+        
+        #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background: rgba(0, 0, 0, 0.8); color: #ffaa00; border: 1px solid #ffaa00; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        
+        /* Панель інформації про планету */
+        #planet-info {
+            position: absolute; top: 15px; left: 15px; z-index: 9999;
+            background: rgba(10, 10, 10, 0.85); color: #fff;
+            border: 1px solid #ffaa00; padding: 15px; border-radius: 8px;
+            font-size: 14px; box-shadow: 0 0 15px rgba(255, 170, 0, 0.3);
+            display: none; pointer-events: none; max-width: 250px;
+        }
+        #planet-info h2 { margin: 0 0 10px 0; color: #ffaa00; font-size: 18px; border-bottom: 1px solid #555; padding-bottom: 5px;}
+        .info-row { margin-bottom: 5px; color: #aaa; }
+        .info-row span { color: #fff; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="planet-info">
+        <h2 id="p-name">Назва</h2>
+        <div class="info-row">Тип: <span id="p-type">...</span></div>
+        <div class="info-row">Радіус: <span id="p-radius">...</span></div>
+        <div class="info-row">Відстань від Сонця: <span id="p-dist">...</span></div>
+    </div>
+
+    <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData){window.Telegram.WebApp.close();}else{window.close();}">✖ На базу</button>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) { window.Telegram.WebApp.expand(); }
+
+        // 1. ІНІЦІАЛІЗАЦІЯ СЦЕНИ
+        const scene = new THREE.Scene();
+        // Додаємо зорі на фон
+        scene.background = new THREE.Color(0x020205); 
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 150, 250); // Камера дивиться зверху під кутом
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // 2. СВІТЛО
+        // Світло йде з центру (від Сонця)
+        const sunLight = new THREE.PointLight(0xffffff, 2, 500);
+        scene.add(sunLight);
+        // Слабке глобальне світло, щоб тіньова сторона планет не була абсолютно чорною
+        const ambientLight = new THREE.AmbientLight(0x222222);
+        scene.add(ambientLight);
+
+        // 3. ЗОРЯНИЙ ПИЛ (Фон)
+        const starsGeo = new THREE.BufferGeometry();
+        const starsCount = 3000;
+        const posArray = new Float32Array(starsCount * 3);
+        for(let i=0; i < starsCount * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 1000;
+        }
+        starsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const starsMat = new THREE.PointsMaterial({size: 0.5, color: 0xffffff});
+        const stars = new THREE.Points(starsGeo, starsMat);
+        scene.add(stars);
+
+        // 4. СОНЦЕ
+        const sunGeo = new THREE.SphereGeometry(12, 32, 32);
+        const sunMat = new THREE.MeshBasicMaterial({ color: 0xffdd00 }); // BasicMaterial не реагує на світло, воно світиться саме
+        const sun = new THREE.Mesh(sunGeo, sunMat);
+        scene.add(sun);
+
+        // 5. ПЛАНЕТИ (Математичні моделі)
+        const planetData = [
+            { name: "Меркурій", color: 0x888888, radius: 1, dist: 20, speed: 0.04, type: "Кам'яниста планета", realDist: "58 млн км", realRad: "2,439 км" },
+            { name: "Венера", color: 0xe3bb76, radius: 1.5, dist: 30, speed: 0.015, type: "Кам'яниста планета", realDist: "108 млн км", realRad: "6,051 км" },
+            { name: "Земля", color: 0x2b82c9, radius: 1.6, dist: 42, speed: 0.01, type: "Кам'яниста планета", realDist: "149 млн км", realRad: "6,371 км" },
+            { name: "Марс", color: 0xc1440e, radius: 1.2, dist: 55, speed: 0.008, type: "Кам'яниста планета", realDist: "227 млн км", realRad: "3,389 км" },
+            { name: "Юпітер", color: 0xd39c7e, radius: 6, dist: 95, speed: 0.002, type: "Газовий гігант", realDist: "778 млн км", realRad: "69,911 км" },
+            { name: "Сатурн", color: 0xead6b8, radius: 5, dist: 135, speed: 0.0009, type: "Газовий гігант", realDist: "1.4 млрд км", realRad: "58,232 км", hasRing: true },
+            { name: "Уран", color: 0x4b70dd, radius: 3, dist: 175, speed: 0.0004, type: "Крижаний гігант", realDist: "2.9 млрд км", realRad: "25,362 км" },
+            { name: "Нептун", color: 0x274687, radius: 2.8, dist: 210, speed: 0.0001, type: "Крижаний гігант", realDist: "4.5 млрд км", realRad: "24,622 км" }
+        ];
+
+        const planetMeshes = [];
+
+        planetData.forEach((data) => {
+            const geo = new THREE.SphereGeometry(data.radius, 32, 32);
+            // StandardMaterial реагує на світло від Сонця
+            const mat = new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.8 });
+            const mesh = new THREE.Mesh(geo, mat);
+            
+            // Зберігаємо випадковий початковий кут на орбіті
+            mesh.userData = { 
+                angle: Math.random() * Math.PI * 2, 
+                data: data 
+            };
+
+            // Додаємо кільця Сатурну
+            if (data.hasRing) {
+                const ringGeo = new THREE.RingGeometry(data.radius + 1.5, data.radius + 4, 32);
+                const ringMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = Math.PI / 2 + 0.2; // Нахил кільця
+                mesh.add(ring); // Прив'язуємо кільце до самої планети
+            }
+
+            scene.add(mesh);
+            planetMeshes.push(mesh);
+        });
+
+        // 6. ПОЯС АСТЕРОЇДІВ (Між Марсом і Юпітером)
+        const beltGeo = new THREE.BufferGeometry();
+        const beltCount = 2000; // Кількість астероїдів
+        const beltPos = new Float32Array(beltCount * 3);
+        
+        for(let i=0; i < beltCount * 3; i+=3) {
+            // Радіус орбіти астероїда від 65 до 80 (між Марсом 55 і Юпітером 95)
+            const r = 65 + Math.random() * 15;
+            const theta = Math.random() * Math.PI * 2;
+            
+            beltPos[i] = r * Math.cos(theta); // x
+            beltPos[i+1] = (Math.random() - 0.5) * 4; // y (невелика товщина поясу)
+            beltPos[i+2] = r * Math.sin(theta); // z
+        }
+        beltGeo.setAttribute('position', new THREE.BufferAttribute(beltPos, 3));
+        const beltMat = new THREE.PointsMaterial({size: 0.3, color: 0x888888});
+        const asteroidBelt = new THREE.Points(beltGeo, beltMat);
+        scene.add(asteroidBelt);
+
+        // 7. СИСТЕМА НАВЕДЕННЯ ТА КЛІКІВ (Raycaster)
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const infoPanel = document.getElementById('planet-info');
+
+        function onPointerDown(event) {
+            // Переводимо координати кліку в систему WebGL (-1 до +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Перевіряємо перетин променя з планетами або Сонцем
+            const intersects = raycaster.intersectObjects([...planetMeshes, sun]);
+
+            if (intersects.length > 0) {
+                const object = intersects[0].object;
+                
+                if (object === sun) {
+                    showInfo("Сонце", "Жовтий карлик (Зоря)", "696,340 км", "Центр системи");
+                } else {
+                    const data = object.userData.data;
+                    showInfo(data.name, data.type, data.realRad, data.realDist);
+                }
+            } else {
+                infoPanel.style.display = 'none'; // Ховаємо, якщо клік у порожнечу
+            }
+        }
+
+        function showInfo(name, type, radius, dist) {
+            document.getElementById('p-name').innerText = name;
+            document.getElementById('p-type').innerText = type;
+            document.getElementById('p-radius').innerText = radius;
+            document.getElementById('p-dist').innerText = dist;
+            infoPanel.style.display = 'block';
+        }
+
+        window.addEventListener('pointerdown', onPointerDown);
+
+        // 8. АНІМАЦІЯ (Головний цикл)
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Рух планет по орбітах
+            planetMeshes.forEach(mesh => {
+                const data = mesh.userData.data;
+                mesh.userData.angle += data.speed; // Збільшуємо кут
+                
+                // Тригонометрія для кола: x = r*cos(a), z = r*sin(a)
+                mesh.position.x = data.dist * Math.cos(mesh.userData.angle);
+                mesh.position.z = data.dist * Math.sin(mesh.userData.angle);
+                
+                // Обертання планети навколо своєї осі
+                mesh.rotation.y += 0.02;
+            });
+
+            // Повільне обертання поясу астероїдів як єдиного цілого
+            asteroidBelt.rotation.y += 0.0005;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Адаптація під розмір екрану
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
