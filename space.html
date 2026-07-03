@@ -127,7 +127,7 @@
         async function loadSatellites() {
             try {
                 // Анти-бан: пропускаємо запити через raw-проксі AllOrigins
-                const proxy = 'https://corsproxy.io/?';
+                 const proxy = 'https://corsproxy.io/?';
                 const [stationsRes, navRes, starlinkRes] = await Promise.all([
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle')),
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle')),
