@@ -3,263 +3,276 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Сонячна Система (Фотореалізм)</title>
+    <title>Орбітальний Радар (Гібридний Движок)</title>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://unpkg.com/three"></script>
+    <script src="https://unpkg.com/globe.gl"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.1.3/satellite.min.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <style>
         body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace;}
-        #canvas-container { height: 100vh; width: 100vw; display: block; }
+        #globeViz { height: 100vh; width: 100vw; cursor: grab; }
         
-        .sys-btn { position: absolute; z-index: 9999; background: rgba(0, 0, 0, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px 15px; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; transition: 0.3s;}
-        .sys-btn:hover { background: #00ffcc; color: #000; }
+        #close-btn { position: absolute; top: 15px; right: 15px; z-index: 9999; background: rgba(0, 0, 0, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        #status-panel { position: absolute; top: 15px; left: 15px; z-index: 9999; background: rgba(0, 20, 40, 0.8); color: #00ffcc; border: 1px solid #00ffcc; padding: 10px; border-radius: 5px; font-size: 14px; font-weight: bold; pointer-events: none; text-shadow: 0 0 5px #00ffcc; }
         
-        #close-btn { top: 15px; right: 15px; color: #ff4d4d; border-color: #ff4d4d; }
-        #close-btn:hover { background: #ff4d4d; color: #fff; }
-        
-        #pause-btn { bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 16px; box-shadow: 0 0 10px rgba(0,255,204,0.5);}
-        #reset-btn { top: 15px; left: 15px; display: none; color: #ffaa00; border-color: #ffaa00;}
-        #reset-btn:hover { background: #ffaa00; color: #000; }
+        #mode-toggle { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; gap: 5px; background: rgba(0,20,40,0.8); padding: 5px; border-radius: 10px; border: 1px solid #00ffcc; width: 90%; max-width: 400px; justify-content: center;}
+        .mode-btn { flex: 1; padding: 10px 5px; font-size: 14px; font-weight: bold; cursor: pointer; border: 1px solid transparent; border-radius: 5px; background: #001122; color: #00ffcc; transition: 0.3s; text-align: center;}
+        .mode-btn.active { background: #00ffcc; color: #000; box-shadow: 0 0 10px #00ffcc; }
 
-        #planet-info {
-            position: absolute; top: 70px; left: 15px; z-index: 9999;
-            background: rgba(10, 10, 10, 0.85); color: #fff;
-            border: 1px solid #ffaa00; padding: 15px; border-radius: 8px;
-            font-size: 14px; box-shadow: 0 0 15px rgba(255, 170, 0, 0.3);
-            display: none; pointer-events: none; max-width: 250px;
+        /* Стандартний тултип для WebGL та Орбіт */
+        .scene-tooltip {
+            background: rgba(0, 15, 30, 0.95) !important; border: 1px solid #00ffcc !important; border-radius: 8px !important;
+            padding: 12px !important; color: #fff !important; font-family: 'Arial', sans-serif !important;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4) !important; pointer-events: none; min-width: 200px;
         }
-        #planet-info h2 { margin: 0 0 10px 0; color: #ffaa00; font-size: 18px; border-bottom: 1px solid #555; padding-bottom: 5px;}
-        .info-row { margin-bottom: 5px; color: #aaa; }
-        .info-row span { color: #fff; font-weight: bold; }
+        .sat-name { color: #00ffcc; font-weight: bold; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 5px; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between;}
+        .sat-org { font-size: 11px; color: #ffaa00; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
+        .sat-data { font-size: 13px; color: #ccc; }
+        .sat-data span { color: #fff; font-weight: bold; }
+        .orbit-info { font-size: 12px; color: #aaa; margin-top: 8px; line-height: 1.4; font-style: italic;}
+
+        /* НОВИЙ КЛАС: Величезні HTML-маркери для станцій */
+        .html-station-marker {
+            width: 40px; height: 40px; 
+            background: rgba(255, 170, 0, 0.2); border: 2px solid #ffaa00;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 20px; cursor: pointer; box-shadow: 0 0 15px #ffaa00;
+            transition: all 0.3s ease; position: relative;
+            animation: pulse 2s infinite;
+        }
+        .html-station-marker:hover, .html-station-marker:active {
+            background: rgba(255, 170, 0, 0.8); transform: scale(1.2);
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 170, 0, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 170, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 170, 0, 0); }
+        }
+        
+        /* Випадаюче меню для станцій */
+        .html-station-popup {
+            display: none; position: absolute; top: 50px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 15, 30, 0.95); border: 1px solid #ffaa00; border-radius: 8px;
+            padding: 12px; color: #fff; font-family: 'Arial', sans-serif;
+            box-shadow: 0 0 20px rgba(255, 170, 0, 0.5); min-width: 200px;
+            z-index: 10000; text-align: left;
+        }
     </style>
 </head>
 <body>
 
+    <div id="status-panel">⚙️ З'єднання з NORAD...</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp){window.Telegram.WebApp.close();}else{window.close();}">✖ Вихід</button>
-    <button id="pause-btn" onclick="togglePause()">⏸ Зупинити рух</button>
-    <button id="reset-btn" onclick="resetView()">🌌 Повернутись до Сонця</button>
 
-    <div id="planet-info">
-        <h2 id="p-name">Назва</h2>
-        <div class="info-row">Тип: <span id="p-type">...</span></div>
-        <div class="info-row">Радіус: <span id="p-radius">...</span></div>
-        <div class="info-row">Відстань: <span id="p-dist">...</span></div>
+    <div id="mode-toggle">
+        <button id="btn-all" class="mode-btn active" onclick="setFilter('all')">🌐 Всі об'єкти</button>
+        <button id="btn-iss" class="mode-btn" onclick="setFilter('iss')">🌍 Станції</button>
+        <button id="btn-starlink" class="mode-btn" onclick="setFilter('starlink')">📡 Starlink</button>
     </div>
 
-    <div id="canvas-container"></div>
+    <div id="globeViz"></div>
 
     <script>
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) { window.Telegram.WebApp.expand(); }
 
-        let isPaused = false;
-        let trackedPlanet = null;
-        
-        // Завантажувач текстур (Беремо якісні карти планет з відкритого репозиторію)
-        const textureLoader = new THREE.TextureLoader();
-        const TEX_URL = "https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/";
+        const EARTH_RADIUS_KM = 6371;
+        const statusPanel = document.getElementById('status-panel');
+        let satData = [];
+        let currentFilter = 'all';
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x020205); 
+        function getSatInfo(name) {
+            const upperName = name.toUpperCase();
+            if (upperName.includes('ISS') || upperName.includes('ZARYA')) return { flag: '🌐', org: 'МКС', type: 'iss' };
+            if (upperName.includes('TIANGONG') || upperName.includes('CSS')) return { flag: '🇨🇳', org: 'CNSA (Китай)', type: 'iss' };
+            if (upperName.includes('STARLINK')) return { flag: '🇺🇸', org: 'SpaceX', type: 'starlink' };
+            return { flag: '🛰️', org: 'Військові/Наукові', type: 'other' };
+        }
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
-        camera.position.set(0, 180, 300);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-
-        // Світло (Сонце світить на всі планети з центру)
-        const sunLight = new THREE.PointLight(0xffffff, 2.5, 800);
-        scene.add(sunLight);
-        scene.add(new THREE.AmbientLight(0x111111)); // Легке підсвічування космосу
-
-        // Зорі
-        const starsGeo = new THREE.BufferGeometry();
-        const posArray = new Float32Array(4000 * 3);
-        for(let i=0; i < 12000; i++) posArray[i] = (Math.random() - 0.5) * 1500;
-        starsGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-        scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({size: 0.7, color: 0xffffff})));
-
-        // --- СОНЦЕ (Фотореалістична текстура плазми) ---
-        const sunGeo = new THREE.SphereGeometry(14, 64, 64);
-        const sunMat = new THREE.MeshBasicMaterial({ 
-            map: textureLoader.load(TEX_URL + 'sunmap.jpg') 
-        });
-        const sun = new THREE.Mesh(sunGeo, sunMat);
-        scene.add(sun);
-
-        // --- ПЛАНЕТИ ТА ТЕКСТУРИ ---
-        const planetData = [
-            { name: "Меркурій", tex: "mercurymap.jpg", radius: 1, dist: 25, speed: 0.04, type: "Кам'яниста планета" },
-            { name: "Венера", tex: "venusmap.jpg", radius: 1.5, dist: 35, speed: 0.015, type: "Кам'яниста планета" },
-            { name: "Земля", tex: "earthmap1k.jpg", isEarth: true, radius: 1.8, dist: 50, speed: 0.01, type: "Кам'яниста (Населена)" },
-            { name: "Марс", tex: "marsmap1k.jpg", radius: 1.2, dist: 65, speed: 0.008, type: "Кам'яниста планета" },
-            { name: "Юпітер", tex: "jupitermap.jpg", radius: 7, dist: 105, speed: 0.002, type: "Газовий гігант" },
-            { name: "Сатурн", tex: "saturnmap.jpg", radius: 5.5, dist: 150, speed: 0.0009, type: "Газовий гігант", hasRing: true },
-            { name: "Уран", tex: "uranusmap.jpg", radius: 3.5, dist: 195, speed: 0.0004, type: "Крижаний гігант" },
-            { name: "Нептун", tex: "neptunemap.jpg", radius: 3.2, dist: 235, speed: 0.0001, type: "Крижаний гігант" }
+        const orbitsData = [
+            { id: "leo", name: "Низька орбіта (LEO)", altKm: 600, colorHex: "#00ffcc", colorVal: 0x00ffcc, angle: Math.PI / 2, desc: "Тут літає МКС та Starlink." },
+            { id: "meo", name: "Середня орбіта (MEO)", altKm: 20000, colorHex: "#ffaa00", colorVal: 0xffaa00, angle: Math.PI / 3, desc: "Орбіта для навігаційних систем (GPS, Galileo)." },
+            { id: "geo", name: "Геостаціонарна (GEO)", altKm: 35786, colorHex: "#ff00ff", colorVal: 0xff00ff, angle: Math.PI / 2, desc: "Супутники зв'язку, що зависають над однією точкою." }
         ];
 
-        const planetMeshes = [];
-
-        planetData.forEach((data) => {
-            const geo = new THREE.SphereGeometry(data.radius, 64, 64); // Більше полігонів для круглості
-            
-            // Натягуємо текстуру на кожну планету
-            const mat = new THREE.MeshStandardMaterial({ 
-                map: textureLoader.load(TEX_URL + data.tex),
-                roughness: 0.6
-            });
-            
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.userData = { angle: Math.random() * Math.PI * 2, data: data };
-
-            // Орбітальні супутники навколо Землі
-            if (data.isEarth) {
-                const satGeo = new THREE.BufferGeometry();
-                const satPos = new Float32Array(1000 * 3);
-                for(let i=0; i<3000; i+=3) {
-                    const r = data.radius + 0.3 + Math.random() * 0.8; 
-                    const theta = Math.random() * Math.PI * 2;
-                    const phi = Math.acos((Math.random() * 2) - 1);
-                    satPos[i] = r * Math.sin(phi) * Math.cos(theta);
-                    satPos[i+1] = r * Math.sin(phi) * Math.sin(theta);
-                    satPos[i+2] = r * Math.cos(phi);
-                }
-                satGeo.setAttribute('position', new THREE.BufferAttribute(satPos, 3));
-                const earthSats = new THREE.Points(satGeo, new THREE.PointsMaterial({size: 0.05, color: 0x00ffcc}));
-                mesh.add(earthSats); 
-                mesh.userData.satellites = earthSats; 
-            }
-
-            // Кільця Сатурна
-            if (data.hasRing) {
-                const ringGeo = new THREE.RingGeometry(data.radius + 1.5, data.radius + 6, 64);
-                // Для кілець використовуємо напівпрозорий матеріал
-                const ringMat = new THREE.MeshStandardMaterial({ 
-                    color: 0xe5ceb3, side: THREE.DoubleSide, transparent: true, opacity: 0.6 
-                });
-                const ring = new THREE.Mesh(ringGeo, ringMat);
-                ring.rotation.x = Math.PI / 2 + 0.2;
-                mesh.add(ring);
-            }
-
-            scene.add(mesh);
-            planetMeshes.push(mesh);
-        });
-
-        // Пояс астероїдів
-        const beltGeo = new THREE.BufferGeometry();
-        const beltPos = new Float32Array(2500 * 3);
-        for(let i=0; i < 7500; i+=3) {
-            const r = 75 + Math.random() * 15; 
-            const theta = Math.random() * Math.PI * 2;
-            beltPos[i] = r * Math.cos(theta);
-            beltPos[i+1] = (Math.random() - 0.5) * 3;
-            beltPos[i+2] = r * Math.sin(theta);
-        }
-        beltGeo.setAttribute('position', new THREE.BufferAttribute(beltPos, 3));
-        const asteroidBelt = new THREE.Points(beltGeo, new THREE.PointsMaterial({size: 0.2, color: 0x888888}));
-        scene.add(asteroidBelt);
-
-        // --- ЛОГІКА УПРАВЛІННЯ ---
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-
-        function togglePause() {
-            isPaused = !isPaused;
-            document.getElementById('pause-btn').innerText = isPaused ? "▶️ Відновити рух" : "⏸ Зупинити рух";
-            document.getElementById('pause-btn').style.color = isPaused ? "#ffaa00" : "#00ffcc";
-        }
-
-        function resetView() {
-            trackedPlanet = null;
-            document.getElementById('planet-info').style.display = 'none';
-            document.getElementById('reset-btn').style.display = 'none';
-            if (isPaused) togglePause(); 
-            controls.target.set(0, 0, 0);
-            camera.position.set(0, 180, 300);
-        }
-
-        window.addEventListener('pointerdown', (event) => {
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-
-            // Тепер можна клікнути і на Сонце!
-            const intersects = raycaster.intersectObjects([...planetMeshes, sun]);
-
-            if (intersects.length > 0) {
-                trackedPlanet = intersects[0].object;
+        // --- ІНІЦІАЛІЗАЦІЯ ---
+        const world = Globe()
+            (document.getElementById('globeViz'))
+            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+            .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+            .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+            .showAtmosphere(true)
+            .atmosphereColor('#00ffff')
+            .atmosphereAltitude(0.15)
+            // WebGL Точки (Тепер тільки для дрібних супутників)
+            .pointColor(() => '#00ffcc')
+            .pointAltitude('alt') 
+            .pointRadius(0.035) 
+            .pointResolution(16)
+            .onPointHover(sat => { world.controls().autoRotate = !sat; })
+            .pointLabel(sat => `
+                <div class="scene-tooltip">
+                    <div class="sat-name"><span>${sat.name}</span><span style="font-size: 20px;">${sat.info.flag}</span></div>
+                    <div class="sat-org">${sat.info.org}</div>
+                    <div class="sat-data">Висота: <span>${Math.round(sat.altKm)} км</span><br>Швидкість: <span>${Math.round(sat.velocity)} км/год</span></div>
+                </div>
+            `)
+            // HTML Елементи (Гігантські кнопки для станцій)
+            .htmlElement(d => {
+                const el = document.createElement('div');
+                el.className = 'html-station-marker';
+                el.innerHTML = `
+                    ${d.info.flag}
+                    <div class="html-station-popup">
+                        <div class="sat-name" style="color: #ffaa00;"><span>${d.name}</span></div>
+                        <div class="sat-org">${d.info.org}</div>
+                        <div class="sat-data">
+                            Висота: <span>${Math.round(d.altKm)} км</span><br>
+                            Швидкість: <span>${Math.round(d.velocity)} км/год</span><br>
+                        </div>
+                    </div>
+                `;
                 
-                if (trackedPlanet === sun) {
-                    document.getElementById('p-name').innerText = "Сонце";
-                    document.getElementById('p-type').innerText = "Зоря (Жовтий карлик)";
-                    document.getElementById('p-radius').innerText = "696,340 км";
-                    document.getElementById('p-dist').innerText = "Центр системи";
-                } else {
-                    const data = trackedPlanet.userData.data;
-                    document.getElementById('p-name').innerText = data.name;
-                    document.getElementById('p-type').innerText = data.type;
-                    document.getElementById('p-radius').innerText = (data.radius * 2000) + " км";
-                    document.getElementById('p-dist').innerText = (data.dist * 3) + " млн км";
-                }
+                // Логіка кліку/тапу для телефону
+                el.onclick = (e) => {
+                    e.stopPropagation();
+                    const popup = el.querySelector('.html-station-popup');
+                    const isVisible = popup.style.display === 'block';
+                    
+                    // Закриваємо всі інші попапи
+                    document.querySelectorAll('.html-station-popup').forEach(p => p.style.display = 'none');
+                    
+                    // Відкриваємо поточний
+                    popup.style.display = isVisible ? 'none' : 'block';
+                    
+                    // Зупиняємо або запускаємо обертання планети
+                    world.controls().autoRotate = isVisible;
+                };
+                return el;
+            })
+            // Орбіти
+            .customLayerData(orbitsData)
+            .customThreeObject(d => {
+                const R = world.getGlobeRadius();
+                const geo = new THREE.TorusGeometry(R * (1 + d.altKm/EARTH_RADIUS_KM), 0.8, 16, 100);
+                const mat = new THREE.MeshBasicMaterial({color: d.colorVal, transparent: true, opacity: 0.35});
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.rotation.x = d.angle;
+                return mesh;
+            })
+            .customLayerLabel(d => `
+                <div class="scene-tooltip" style="border-color: ${d.colorHex} !important;">
+                    <div class="sat-name" style="color: ${d.colorHex};">${d.name}</div>
+                    <div class="sat-data">Середня висота: <span>~${d.altKm} км</span><br><div class="orbit-info">${d.desc}</div></div>
+                </div>
+            `)
+            .onCustomLayerHover(obj => { world.controls().autoRotate = !obj; });
+
+        world.camera().position.z = 350;
+        world.controls().autoRotate = true;
+        world.controls().autoRotateSpeed = 0.5;
+
+        setTimeout(() => { scene.add(new THREE.AmbientLight(0xffffff, 0.9)); }, 500);
+
+        // --- ПАРСИНГ ---
+        async function loadSatellites() {
+            try {
+                const [stationsRes, starlinkRes] = await Promise.all([
+                    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'),
+                    fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
+                ]);
                 
-                document.getElementById('planet-info').style.display = 'block';
-                document.getElementById('reset-btn').style.display = 'block';
-                if (!isPaused) togglePause();
-            }
-        });
+                const stationsText = await stationsRes.text();
+                const starlinkText = await starlinkRes.text();
 
-        // --- АНІМАЦІЯ ---
-        function animate() {
-            requestAnimationFrame(animate);
+                const starlinkLines = starlinkText.split('\n').slice(0, 900);
+                const allLines = [...stationsText.split('\n'), ...starlinkLines].map(line => line.trim());
+                
+                for (let i = 0; i < allLines.length - 2; i += 3) {
+                    const name = allLines[i];
+                    const tle1 = allLines[i+1];
+                    const tle2 = allLines[i+2];
 
-            if (!isPaused) {
-                sun.rotation.y += 0.005; // Сонце теж крутиться!
-
-                planetMeshes.forEach(mesh => {
-                    const data = mesh.userData.data;
-                    mesh.userData.angle += data.speed;
-                    mesh.position.x = data.dist * Math.cos(mesh.userData.angle);
-                    mesh.position.z = data.dist * Math.sin(mesh.userData.angle);
-                    mesh.rotation.y += 0.02;
-
-                    if (mesh.userData.satellites) {
-                        mesh.userData.satellites.rotation.y -= 0.03;
-                        mesh.userData.satellites.rotation.z += 0.01;
+                    if (name && tle1 && tle2 && tle1.startsWith('1 ') && tle2.startsWith('2 ')) {
+                        try {
+                            const satrec = satellite.twoline2satrec(tle1, tle2);
+                            satData.push({ name: name, satrec: satrec, info: getSatInfo(name) });
+                        } catch(e) {} 
                     }
-                });
-                asteroidBelt.rotation.y += 0.0005; 
-            }
+                }
 
-            if (trackedPlanet) {
-                controls.target.lerp(trackedPlanet.position, 0.05);
-                const r = trackedPlanet.geometry ? trackedPlanet.geometry.parameters.radius : 14;
-                const idealPos = trackedPlanet.position.clone().add(new THREE.Vector3(r * 3, r * 2, r * 4));
-                camera.position.lerp(idealPos, 0.05);
-            }
+                statusPanel.innerHTML = `✅ Орбітальний радар: <b>${satData.length}</b> об'єктів`;
+                updateSatellites();
 
-            controls.update();
-            renderer.render(scene, camera);
+            } catch (error) {
+                statusPanel.innerHTML = "❌ Помилка з'єднання з NORAD.";
+                statusPanel.style.color = "#ff4d4d";
+            }
         }
 
-        animate();
+        window.setFilter = function(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + filter).classList.add('active');
+            
+            if(filter === 'iss') world.camera().position.z = 150;
+            else world.camera().position.z = 350;
+        };
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        function updateSatellites() {
+            const now = new Date();
+            const gmst = satellite.gstime(now);
+            
+            // Розділяємо масиви для Гібридного рендерингу
+            const webglSats = [];
+            const htmlSats = [];
+
+            satData.forEach(sat => {
+                if (currentFilter !== 'all' && sat.info.type !== currentFilter) return;
+
+                const positionAndVelocity = satellite.propagate(sat.satrec, now);
+                const positionEci = positionAndVelocity.position;
+                const velocityEci = positionAndVelocity.velocity;
+
+                if (positionEci && velocityEci) {
+                    const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+                    const altKm = positionGd.height;
+                    const velocityKmS = Math.sqrt(Math.pow(velocityEci.x, 2) + Math.pow(velocityEci.y, 2) + Math.pow(velocityEci.z, 2));
+
+                    const satObj = {
+                        name: sat.name,
+                        lat: satellite.degreesLat(positionGd.latitude),
+                        lng: satellite.degreesLong(positionGd.longitude),
+                        altKm: altKm,
+                        alt: altKm / EARTH_RADIUS_KM, 
+                        velocity: velocityKmS * 3600,
+                        info: sat.info 
+                    };
+
+                    // Якщо це станція (МКС) - кидаємо в масив для HTML, інакше в WebGL
+                    if (sat.info.type === 'iss') {
+                        htmlSats.push(satObj);
+                    } else {
+                        webglSats.push(satObj);
+                    }
+                }
+            });
+
+            // Відправляємо дані у відповідні движки
+            world.pointsData(webglSats);
+            world.htmlElementsData(htmlSats);
+            
+            setTimeout(updateSatellites, 1000); 
+        }
+
+        // Закривати попапи станцій при кліку на порожнє місце глобуса
+        document.getElementById('globeViz').addEventListener('click', () => {
+            document.querySelectorAll('.html-station-popup').forEach(p => p.style.display = 'none');
+            world.controls().autoRotate = true;
         });
+
+        loadSatellites();
     </script>
 </body>
 </html>
- 
-
-               
