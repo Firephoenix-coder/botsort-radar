@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Орбітальний Радар (Анти-Бан + HUD)</title>
     
-    <script src="https://unpkg.com/three"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/globe.gl"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.1.3/satellite.min.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -127,7 +127,7 @@
         async function loadSatellites() {
             try {
                 // Анти-бан: пропускаємо запити через raw-проксі AllOrigins
-                const proxy = 'https://api.allorigins.win/raw?url=';
+                const proxy = 'https://corsproxy.io/?';
                 const [stationsRes, navRes, starlinkRes] = await Promise.all([
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle')),
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle')),
