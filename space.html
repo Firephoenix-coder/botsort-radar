@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Орбітальний Радар (Анти-Бан + HUD)</title>
+    <title>Орбітальний Радар (Стабільна версія)</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/globe.gl"></script>
@@ -44,7 +44,7 @@
 </head>
 <body>
 
-    <div id="status-panel">⚙️ Завантаження баз через проксі...</div>
+    <div id="status-panel">⚙️ Підключення до захищених серверів...</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp){window.Telegram.WebApp.close();}else{window.close();}">✖ Вихід</button>
 
     <div id="target-hud">
@@ -96,7 +96,7 @@
             .atmosphereColor('#00ffff')
             .atmosphereAltitude(0.15)
             .htmlElementsData([])
-            .htmlAltitude('alt') // КРИТИЧНЕ ВИПРАВЛЕННЯ: вказуємо глобусу, де брати висоту!
+            .htmlAltitude('alt') 
             .htmlElement(d => {
                 const el = document.createElement('div');
                 el.className = 'sat-emoji';
@@ -115,7 +115,13 @@
         world.controls().autoRotate = true;
         world.controls().autoRotateSpeed = 0.5;
 
-        setTimeout(() => { scene = world.scene(); scene.add(new THREE.AmbientLight(0xffffff, 0.9)); }, 500);
+        // Безпечне увімкнення світла (вже з гарантованою змінною THREE)
+        setTimeout(() => { 
+            if (typeof THREE !== 'undefined') {
+                const scene = world.scene(); 
+                scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
+            }
+        }, 500);
 
         window.unlockTarget = function() {
             lockedTargetName = null;
@@ -126,8 +132,9 @@
 
         async function loadSatellites() {
             try {
-                // Анти-бан: пропускаємо запити через raw-проксі AllOrigins
+                // 2. НОВИЙ СТАБІЛЬНИЙ ПРОКСІ (corsproxy.io замість allorigins)
                 const proxy = 'https://corsproxy.io/?';
+                
                 const [stationsRes, navRes, starlinkRes] = await Promise.all([
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle')),
                     fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle')),
@@ -159,12 +166,12 @@
                     }
                 }
 
-                // Виводимо точну кількість, щоб ти знав, що парсер спрацював
                 statusPanel.innerHTML = `✅ Бази завантажено: ${satData.length} об'єктів`;
                 updateSatellites();
 
             } catch (error) {
-                statusPanel.innerHTML = "❌ Помилка завантаження. Спробуй пізніше.";
+                console.error(error);
+                statusPanel.innerHTML = "❌ Помилка завантаження баз.";
                 statusPanel.style.color = "#ff4d4d";
             }
         }
@@ -176,7 +183,7 @@
             document.getElementById('btn-' + filter).classList.add('active');
             
             if(filter === 'stations') world.camera().position.z = 150;
-            else if(filter === 'nav') world.camera().position.z = 400; // Навігація дуже високо!
+            else if(filter === 'nav') world.camera().position.z = 400;
             else world.camera().position.z = 250;
         };
 
@@ -227,4 +234,5 @@
     </script>
 </body>
 </html>
+  
            
