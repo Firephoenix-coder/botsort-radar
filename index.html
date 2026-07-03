@@ -71,84 +71,77 @@
         map.addLayer(markersGroup);
 
         const statusPanel = document.getElementById('status-panel');
-
         async function fetchPlanes() {
-            statusPanel.innerHTML = "📡 З'єднання з FlightRadar24...";
+            statusPanel.innerHTML = "📡 З'єднання із супутником (OpenSky)...";
             statusPanel.style.color = "#ffff00";
             statusPanel.style.borderColor = "#ffff00";
 
             try {
-                // Прямий запит до прихованого API FlightRadar24 (Європа)
-                const targetUrl = 'https://data-live.flightradar24.com/zones/fcgi/feed.js?bounds=65.0,40.0,-10.0,45.0';
+                // Прямий запит БЕЗ проксі! Зона: Україна та Європа
+                const response = await fetch('https://opensky-network.org/api/states/all?lamin=40.0&lomin=15.0&lamax=60.0&lomax=45.0');
                 
-                // Використовуємо надійний проксі метод /get, який повертає чистий JSON і ніколи не падає
-                const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
-                
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error("Proxy Error");
-                
-                const proxyData = await response.json();
-                
-                // Розпаковуємо відповідь від FlightRadar24
-                const data = JSON.parse(proxyData.contents); 
+                if (response.status === 429) {
+                    statusPanel.innerHTML = "❌ Бан по IP (Помилка 429). Забагато запитів, зачекайте годину.";
+                    statusPanel.style.color = "#ff4d4d";
+                    statusPanel.style.borderColor = "#ff4d4d";
+                    return;
+                }
+
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+                const data = await response.json();
+
+                if (!data || !data.states) {
+                    statusPanel.innerHTML = "⚠️ Літаків у цій зоні не знайдено.";
+                    statusPanel.style.color = "#ff9900";
+                    return;
+                }
 
                 markersGroup.clearLayers();
                 const newMarkers = [];
-                let count = 0;
 
-                // FlightRadar віддає дані у вигляді словника, де ключ - це ID літака
-                for (let key in data) {
-                    // Ігноруємо системні ключі
-                    if (key === 'full_count' || key === 'version' || key === 'stats') continue;
-                    
-                    const plane = data[key];
-                    const lat = plane[1];
-                    const lon = plane[2];
-                    const track = plane[3];
-                    const altFeet = plane[4]; // Висота у футах
-                    const speedKnots = plane[5]; // Швидкість у вузлах
-                    const model = plane[8] || "Невідома модель";
-                    const reg = plane[9] || "N/A";
-                    const from = plane[11] || "—";
-                    const to = plane[12] || "—";
-                    const flightNum = plane[13] || "Приватний/N/A";
+                data.states.forEach(plane => {
+                    const callsign = plane[1] ? plane[1].trim() : "N/A";
+                    const country = plane[2] || "Невідомо";
+                    const lon = plane[5];
+                    const lat = plane[6];
+                    const velocity = plane[9];
+                    const true_track = plane[10] || 0;
+                    const altitude = plane[13];
 
-                    // Конвертуємо фути в метри та вузли в км/год
-                    const altMeters = Math.round(altFeet * 0.3048);
-                    const speedKmh = Math.round(speedKnots * 1.852);
+                    if (lat === null || lon === null) return;
 
                     const planeHtmlIcon = L.divIcon({
                         className: 'custom-div-icon',
-                        html: `<div class="plane-icon" style="transform: rotate(${track}deg);">✈️</div>`,
+                        html: `<div class="plane-icon" style="transform: rotate(${true_track}deg);">✈️</div>`,
                         iconSize: [20, 20],
                         iconAnchor: [10, 10]
                     });
 
-                    // Формуємо крутий попап з УСІМА даними
+                    const speedKmh = velocity ? Math.round(velocity * 3.6) : 0;
+                    
                     const popupText = `
-                        <b>Рейс:</b> ${flightNum} (${reg})<br>
-                        <b>Модель:</b> ${model}<br>
-                        <b>Маршрут:</b> ${from} ➡️ ${to}<br>
-                        <b>Висота:</b> ${altMeters} м<br>
+                        <b>Позивний:</b> ${callsign}<br>
+                        <b>Реєстрація:</b> ${country}<br>
+                        <b>Висота:</b> ${altitude ? Math.round(altitude) + ' м' : 'На землі'}<br>
                         <b>Швидкість:</b> ${speedKmh} км/год<br>
                         <hr style="margin: 5px 0;">
-                        <a href="https://www.flightradar24.com/${key}" target="_blank" class="fr-btn">🗺 Відкрити на FlightRadar</a>
+                        <a href="https://www.flightradar24.com/${callsign}" target="_blank" class="fr-btn">🔍 Маршрут на FlightRadar</a>
                     `;
 
                     const marker = L.marker([lat, lon], { icon: planeHtmlIcon }).bindPopup(popupText);
                     newMarkers.push(marker);
-                    count++;
-                }
+                });
 
                 markersGroup.addLayers(newMarkers);
                 
-                statusPanel.innerHTML = `✅ Радар активний. Бортів: ${count}`;
+                statusPanel.innerHTML = `✅ Радар активний. Бортів: ${newMarkers.length}`;
                 statusPanel.style.color = "#00ff00";
                 statusPanel.style.borderColor = "#00ff00";
 
             } catch (error) {
                 console.error(error);
-                statusPanel.innerHTML = "❌ Втрачено зв'язок із серверами.";
+                statusPanel.innerHTML = "❌ Втрачено зв'язок (Можливо блокування CORS/IP).";
                 statusPanel.style.color = "#ff4d4d";
                 statusPanel.style.borderColor = "#ff4d4d";
             }
