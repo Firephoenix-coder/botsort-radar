@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Глобальний Радар (FlightRadar24 JSONP)</title>
+    <title>Глобальний Радар (FlightRadar24)</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -47,14 +46,15 @@
 </head>
 <body>
 
-    <div id="status-panel">⚙️ Ініціалізація...</div>
-    <button id="close-btn" onclick="tg.close()">✖ Закрити</button>
+    <div id="status-panel">⚙️ Ініціалізація FlightRadar...</div>
+    <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData){window.Telegram.WebApp.close();}else{window.close();}">✖ Закрити</button>
 
     <div id="map"></div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand(); 
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
+            window.Telegram.WebApp.expand();
+        }
 
         const map = L.map('map').setView([49.0, 31.0], 5);
 
@@ -72,9 +72,9 @@
         const statusPanel = document.getElementById('status-panel');
         let timeoutId;
 
-        // ГЛОБАЛЬНА ФУНКЦІЯ: Її викличе сам FlightRadar24 після завантаження скрипта
+        // Глобальна функція (JSONP callback) - сюди впадуть дані прямо з серверів FR24
         window.processFR24Data = function(data) {
-            clearTimeout(timeoutId); // Дані прийшли успішно, скасовуємо таймер помилки
+            clearTimeout(timeoutId); // Дані отримано, скасовуємо таймер помилки
 
             markersGroup.clearLayers();
             const newMarkers = [];
@@ -93,10 +93,11 @@
                 const reg = plane[9] || "N/A";
                 const from = plane[11] || "—";
                 const to = plane[12] || "—";
-                const flightNum = plane[13] || "Приватний/N/A";
+                const flightNum = plane[13] || "Приватний";
 
                 if (lat == null || lon == null) continue;
 
+                // Конвертуємо фути в метри, вузли в км/год
                 const altMeters = Math.round(altFeet * 0.3048);
                 const speedKmh = Math.round(speedKnots * 1.852);
 
@@ -129,77 +130,35 @@
             statusPanel.style.borderColor = "#00ff00";
         };
 
-      async function fetchPlanes() {
-            statusPanel.innerHTML = "📡 Обхід CORS через проксі...";
-            statusPanel.style.color = "#ff0"; statusPanel.style.borderColor = "#ff0";
+        function fetchPlanes() {
+            statusPanel.innerHTML = "📡 Підключення до супутників FR24...";
+            statusPanel.style.color = "#ffff00";
+            statusPanel.style.borderColor = "#ffff00";
 
-            try {
-                // Цільова адреса OpenSky (Європа/Україна)
-                const targetUrl = 'https://opensky-network.org/api/states/all?lamin=40.0&lomin=15.0&lamax=60.0&lomax=45.0';
-                
-                // Пропускаємо через AllOrigins, щоб убити захист CORS
-                const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
-                
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`Помилка проксі: ${response.status}`);
+            // Метод JSONP - створюємо прихований тег <script>. Браузер ніколи не блокує скрипти!
+            const script = document.createElement('script');
+            script.id = 'fr24-script';
+            
+            // Запитуємо зону: Європа + Україна
+            script.src = 'https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=65.0,35.0,-10.0,45.0&callback=processFR24Data';
+            
+            const oldScript = document.getElementById('fr24-script');
+            if (oldScript) oldScript.remove();
 
-                const proxyData = await response.json();
-                
-                // Перевіряємо, чи не зловив сам проксі 429 помилку від OpenSky
-                if (proxyData.status && proxyData.status.http_code === 429) {
-                    statusPanel.innerHTML = "❌ Бан по IP (429). OpenSky заблокував проксі.";
-                    statusPanel.style.color = "#f44"; statusPanel.style.borderColor = "#f44";
-                    return;
-                }
+            // Вставка скрипта автоматично запускає запит
+            document.body.appendChild(script);
 
-                // Розпаковуємо сирий текст від OpenSky назад у JSON
-                const data = JSON.parse(proxyData.contents);
-                if (!data || !data.states) throw new Error("Немає даних про літаки");
-
-                markersGroup.clearLayers();
-                const newMarkers = [];
-
-                data.states.forEach(plane => {
-                    if (plane[6] === null || plane[5] === null) return;
-
-                    const callsign = plane[1] ? plane[1].trim() : "N/A";
-                    const true_track = plane[10] || 0;
-                    
-                    const planeHtmlIcon = L.divIcon({
-                        className: 'custom-div-icon',
-                        html: `<div class="plane-icon" style="transform: rotate(${true_track}deg);">✈️</div>`,
-                        iconSize: [20, 20], iconAnchor: [10, 10]
-                    });
-
-                    const speedKmh = plane[9] ? Math.round(plane[9] * 3.6) : 0;
-                    const altMeters = plane[13] ? Math.round(plane[13]) + ' м' : 'На землі';
-
-                    const popupText = `
-                        <b>Позивний:</b> ${callsign}<br>
-                        <b>Висота:</b> ${altMeters}<br>
-                        <b>Швидкість:</b> ${speedKmh} км/год<br>
-                        <hr style="margin: 5px 0;">
-                        <a href="https://www.flightradar24.com/${callsign}" target="_blank" class="fr-btn">Деталі рейсу (FR24)</a>
-                    `;
-
-                    newMarkers.push(L.marker([plane[6], plane[5]], { icon: planeHtmlIcon }).bindPopup(popupText));
-                });
-
-                markersGroup.addLayers(newMarkers);
-                statusPanel.innerHTML = `✅ Радар активний. Бортів: ${newMarkers.length}`;
-                statusPanel.style.color = "#0f0"; statusPanel.style.borderColor = "#0f0";
-
-            } catch (error) {
-                statusPanel.innerHTML = `❌ Помилка: ${error.message}`;
-                statusPanel.style.color = "#f44"; statusPanel.style.borderColor = "#f44";
-                console.error("Деталі помилки:", error);
-            }
+            // Якщо немає відповіді 10 секунд
+            timeoutId = setTimeout(() => {
+                statusPanel.innerHTML = "❌ Втрачено зв'язок (Таймаут).";
+                statusPanel.style.color = "#ff4d4d";
+                statusPanel.style.borderColor = "#ff4d4d";
+            }, 10000);
         }
 
-        // Запуск
         fetchPlanes();
-        // Інтервал 15 секунд — ідеально для плавного оновлення
-        setInterval(fetchPlanes, 15000); 
+        setInterval(fetchPlanes, 15000); // FR24 легко тримає оновлення кожні 15 сек
     </script>
 </body>
 </html>
+
