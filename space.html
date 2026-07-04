@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Орбітальний Радар (Стабільне Ядро)</title>
+    <title>Орбітальний Радар (Броньований Зв'язок)</title>
     
     <script src="https://unpkg.com/globe.gl"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.1.3/satellite.min.js"></script>
@@ -43,7 +43,7 @@
 </head>
 <body>
 
-    <div id="status-panel">⚙️ Ініціалізація ядра...</div>
+    <div id="status-panel">⚙️ Пошук відкритого каналу...</div>
     <button id="close-btn" onclick="if(window.Telegram && window.Telegram.WebApp){window.Telegram.WebApp.close();}else{window.close();}">✖ Вихід</button>
 
     <div id="target-hud">
@@ -86,155 +86,171 @@
             return { type: 'other', org: 'Невідомо', flag: '🏳️', emoji: '🛸', size: '16px' };
         }
 
-        try {
-            const world = Globe()
-                (document.getElementById('globeViz'))
-                .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-                .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
-                .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
-                .showAtmosphere(true)
-                .atmosphereColor('#00ffff')
-                .atmosphereAltitude(0.15)
-                .htmlElementsData([])
-                .htmlAltitude('alt') 
-                .htmlElement(d => {
-                    const el = document.createElement('div');
-                    el.className = 'sat-emoji';
-                    el.innerHTML = d.info.emoji;
-                    el.style.fontSize = d.name === lockedTargetName ? '40px' : d.info.size;
-                    
-                    el.onclick = (e) => {
-                        e.stopPropagation(); 
-                        lockedTargetName = d.name;
-                        document.getElementById('target-hud').style.display = 'block';
-                    };
-                    return el;
-                });
-
-            world.camera().position.z = 250;
-            world.controls().autoRotate = true;
-            world.controls().autoRotateSpeed = 0.5;
-
-            window.unlockTarget = function() {
-                lockedTargetName = null;
-                document.getElementById('target-hud').style.display = 'none';
-            }
-
-            document.getElementById('globeViz').addEventListener('click', () => { unlockTarget(); });
-
-            async function loadSatellites() {
-                try {
-                    statusPanel.innerHTML = "⚙️ Завантаження через кеш-проксі...";
-                    
-                    // JSON-кешуючий проксі (ігнорує CORS та бани NORAD)
-                    const proxy = 'https://api.allorigins.win/get?url=';
-                    
-                    const [stationsRes, navRes, starlinkRes] = await Promise.all([
-                        fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle')),
-                        fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle')),
-                        fetch(proxy + encodeURIComponent('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle'))
-                    ]);
-                    
-                    const stationsJson = await stationsRes.json();
-                    const navJson = await navRes.json();
-                    const starlinkJson = await starlinkRes.json();
-
-                    const stationsText = stationsJson.contents;
-                    const navText = navJson.contents;
-                    const starlinkText = starlinkJson.contents;
-
-                    if (!stationsText) throw new Error("Проксі повернув порожнечу");
-
-                    const starlinkLines = starlinkText.split('\n').slice(0, 450);
-                    const allLines = [...stationsText.split('\n'), ...navText.split('\n'), ...starlinkLines].map(line => line.trim());
-                    
-                    for (let i = 0; i < allLines.length - 2; i += 3) {
-                        const name = allLines[i];
-                        const tle1 = allLines[i+1];
-                        const tle2 = allLines[i+2];
-
-                        if (name && tle1 && tle2 && tle1.startsWith('1 ') && tle2.startsWith('2 ')) {
-                            try {
-                                const satrec = satellite.twoline2satrec(tle1, tle2);
-                                const info = getSatInfo(name);
-                                if (info.type !== 'other') {
-                                    satData.push({ name: name, satrec: satrec, info: info });
-                                }
-                            } catch(e) {} 
-                        }
-                    }
-
-                    statusPanel.innerHTML = `✅ Бази завантажено: ${satData.length} об'єктів`;
-                    updateSatellites();
-
-                } catch (error) {
-                    console.error(error);
-                    statusPanel.innerHTML = "❌ Помилка мережі. Оновіть пізніше.";
-                    statusPanel.style.color = "#ff4d4d";
-                }
-            }
-
-            window.setFilter = function(filter) {
-                currentFilter = filter;
-                unlockTarget(); 
-                document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + filter).classList.add('active');
+        const world = Globe()
+            (document.getElementById('globeViz'))
+            .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+            .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+            .backgroundImageUrl('https://unpkg.com/three-globe/example/img/night-sky.png')
+            .showAtmosphere(true)
+            .atmosphereColor('#00ffff')
+            .atmosphereAltitude(0.15)
+            .htmlElementsData([])
+            .htmlAltitude('alt') 
+            .htmlElement(d => {
+                const el = document.createElement('div');
+                el.className = 'sat-emoji';
+                el.innerHTML = d.info.emoji;
+                el.style.fontSize = d.name === lockedTargetName ? '40px' : d.info.size;
                 
-                if(filter === 'stations') world.camera().position.z = 150;
-                else if(filter === 'nav') world.camera().position.z = 400;
-                else world.camera().position.z = 250;
-            };
+                el.onclick = (e) => {
+                    e.stopPropagation(); 
+                    lockedTargetName = d.name;
+                    document.getElementById('target-hud').style.display = 'block';
+                };
+                return el;
+            });
 
-            function updateSatellites() {
-                const now = new Date();
-                const gmst = satellite.gstime(now);
-                const visibleSats = [];
+        world.camera().position.z = 250;
+        world.controls().autoRotate = true;
+        world.controls().autoRotateSpeed = 0.5;
 
-                satData.forEach(sat => {
-                    if (sat.info.type !== currentFilter) return;
-
-                    const positionAndVelocity = satellite.propagate(sat.satrec, now);
-                    const positionEci = positionAndVelocity.position;
-                    const velocityEci = positionAndVelocity.velocity;
-
-                    if (positionEci && velocityEci) {
-                        const positionGd = satellite.eciToGeodetic(positionEci, gmst);
-                        const altKm = positionGd.height;
-                        const velocityKmS = Math.sqrt(Math.pow(velocityEci.x, 2) + Math.pow(velocityEci.y, 2) + Math.pow(velocityEci.z, 2));
-
-                        const satObj = {
-                            name: sat.name,
-                            lat: satellite.degreesLat(positionGd.latitude),
-                            lng: satellite.degreesLong(positionGd.longitude),
-                            altKm: altKm,
-                            alt: altKm / EARTH_RADIUS_KM, 
-                            speed: velocityKmS * 3600,
-                            info: sat.info 
-                        };
-                        
-                        visibleSats.push(satObj);
-
-                        if (sat.name === lockedTargetName) {
-                            document.getElementById('hud-name').innerText = sat.name;
-                            document.getElementById('hud-flag').innerText = sat.info.flag;
-                            document.getElementById('hud-org').innerText = sat.info.org;
-                            document.getElementById('hud-alt').innerText = Math.round(satObj.altKm);
-                            document.getElementById('hud-speed').innerText = Math.round(satObj.speed);
-                        }
-                    }
-                });
-
-                world.htmlElementsData(visibleSats);
-                setTimeout(updateSatellites, 1000); 
-            }
-
-            loadSatellites();
-
-        } catch (e) {
-            statusPanel.innerHTML = "❌ КРИТИЧНА ПОМИЛКА РЕНДЕРУ";
-            statusPanel.style.color = "#ff0000";
-            console.error(e);
+        window.unlockTarget = function() {
+            lockedTargetName = null;
+            document.getElementById('target-hud').style.display = 'none';
         }
+
+        document.getElementById('globeViz').addEventListener('click', () => { unlockTarget(); });
+
+        // --- БРОНЬОВАНИЙ МЕРЕЖЕВИЙ МОДУЛЬ ---
+        async function fetchWithFallback(url) {
+            // Канал 1: Прямий (якщо CelesTrak нас розблокував)
+            try {
+                const res = await fetch(url);
+                if (res.ok) {
+                    console.log("Direct connection OK");
+                    return await res.text();
+                }
+            } catch(e) {}
+
+            // Канал 2: Надійний проксі CodeTabs (без JSON, просто сирий текст)
+            try {
+                const res = await fetch('https://api.codetabs.com/v1/proxy?quest=' + url);
+                if (res.ok) {
+                    console.log("CodeTabs Proxy OK");
+                    return await res.text();
+                }
+            } catch(e) {}
+
+            // Канал 3: Резервний проксі CorsProxy
+            try {
+                const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url));
+                if (res.ok) {
+                    console.log("CorsProxy OK");
+                    return await res.text();
+                }
+            } catch(e) {}
+
+            throw new Error("Всі канали зв'язку перекрито");
+        }
+
+        async function loadSatellites() {
+            try {
+                const urlStations = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle';
+                const urlNav = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=gnss&FORMAT=tle';
+                const urlStarlink = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle';
+
+                // Завантажуємо бази паралельно через нашу "броню"
+                const [stationsText, navText, starlinkText] = await Promise.all([
+                    fetchWithFallback(urlStations),
+                    fetchWithFallback(urlNav),
+                    fetchWithFallback(urlStarlink)
+                ]);
+
+                // Обмежуємо Starlink, щоб не перевантажити телефон
+                const starlinkLines = starlinkText.split('\n').slice(0, 450);
+                const allLines = [...stationsText.split('\n'), ...navText.split('\n'), ...starlinkLines].map(line => line.trim());
+                
+                for (let i = 0; i < allLines.length - 2; i += 3) {
+                    const name = allLines[i];
+                    const tle1 = allLines[i+1];
+                    const tle2 = allLines[i+2];
+
+                    if (name && tle1 && tle2 && tle1.startsWith('1 ') && tle2.startsWith('2 ')) {
+                        try {
+                            const satrec = satellite.twoline2satrec(tle1, tle2);
+                            const info = getSatInfo(name);
+                            if (info.type !== 'other') {
+                                satData.push({ name: name, satrec: satrec, info: info });
+                            }
+                        } catch(e) {} 
+                    }
+                }
+
+                statusPanel.innerHTML = `✅ Бази завантажено: ${satData.length} об'єктів`;
+                updateSatellites();
+
+            } catch (error) {
+                console.error(error);
+                statusPanel.innerHTML = "❌ Всі канали заблоковано.";
+                statusPanel.style.color = "#ff4d4d";
+            }
+        }
+
+        window.setFilter = function(filter) {
+            currentFilter = filter;
+            unlockTarget(); 
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + filter).classList.add('active');
+            
+            if(filter === 'stations') world.camera().position.z = 150;
+            else if(filter === 'nav') world.camera().position.z = 400;
+            else world.camera().position.z = 250;
+        };
+
+        function updateSatellites() {
+            const now = new Date();
+            const gmst = satellite.gstime(now);
+            const visibleSats = [];
+
+            satData.forEach(sat => {
+                if (sat.info.type !== currentFilter) return;
+
+                const positionAndVelocity = satellite.propagate(sat.satrec, now);
+                const positionEci = positionAndVelocity.position;
+                const velocityEci = positionAndVelocity.velocity;
+
+                if (positionEci && velocityEci) {
+                    const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+                    const altKm = positionGd.height;
+                    const velocityKmS = Math.sqrt(Math.pow(velocityEci.x, 2) + Math.pow(velocityEci.y, 2) + Math.pow(velocityEci.z, 2));
+
+                    const satObj = {
+                        name: sat.name,
+                        lat: satellite.degreesLat(positionGd.latitude),
+                        lng: satellite.degreesLong(positionGd.longitude),
+                        altKm: altKm,
+                        alt: altKm / EARTH_RADIUS_KM, 
+                        speed: velocityKmS * 3600,
+                        info: sat.info 
+                    };
+                    
+                    visibleSats.push(satObj);
+
+                    if (sat.name === lockedTargetName) {
+                        document.getElementById('hud-name').innerText = sat.name;
+                        document.getElementById('hud-flag').innerText = sat.info.flag;
+                        document.getElementById('hud-org').innerText = sat.info.org;
+                        document.getElementById('hud-alt').innerText = Math.round(satObj.altKm);
+                        document.getElementById('hud-speed').innerText = Math.round(satObj.speed);
+                    }
+                }
+            });
+
+            world.htmlElementsData(visibleSats);
+            setTimeout(updateSatellites, 1000); 
+        }
+
+        loadSatellites();
     </script>
 </body>
 </html>
